@@ -27,8 +27,6 @@ class FirebaseConfigureMobileLinks extends Command
 
     /**
      * Execute the console command.
-     *
-     * @return int
      */
     public function handle(): int
     {
@@ -40,15 +38,16 @@ class FirebaseConfigureMobileLinks extends Command
         $domain = rtrim($domain, '/');
 
         $this->info("Menghubungkan ke proyek Firebase: [{$projectName}]...");
-        
+
         try {
             // Mengambil instance Auth dari project yang sesuai
             $auth = Firebase::project($projectName)->auth();
-            
+
             // Mengambil ProjectConfigManager jika tersedia
-            if (!method_exists($auth, 'projectConfigManager')) {
+            if (! method_exists($auth, 'projectConfigManager')) {
                 $this->error('Method projectConfigManager() tidak didukung pada versi library kreait/firebase-php ini.');
                 $this->error('Pastikan versi paket minimal 7.x atau 8.x ke atas.');
+
                 return self::FAILURE;
             }
 
@@ -64,7 +63,7 @@ class FirebaseConfigureMobileLinks extends Command
 
             $projectConfigManager->updateProjectConfig($updateRequest);
 
-            $this->info("✅ Berhasil mengonfigurasi Firebase Hosting domain untuk Mobile Links.");
+            $this->info('✅ Berhasil mengonfigurasi Firebase Hosting domain untuk Mobile Links.');
             Log::info('firebase:configure-mobile-links completed', [
                 'domain' => $domain,
                 'project' => $projectName,
@@ -72,11 +71,12 @@ class FirebaseConfigureMobileLinks extends Command
 
             return self::SUCCESS;
         } catch (Throwable $e) {
-            $this->error("❌ Terjadi kesalahan saat mengupdate konfigurasi: " . $e->getMessage());
+            $this->error('❌ Terjadi kesalahan saat mengupdate konfigurasi: '.$e->getMessage());
             Log::error('firebase:configure-mobile-links failed', [
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
+
             return self::FAILURE;
         }
     }
