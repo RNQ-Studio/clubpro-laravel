@@ -36,11 +36,23 @@ class AuthService
         ]);
 
         // Reload user after token issuance to ensure it exists
-        if ($user !== null && isset($deviceInfo['device_id'], $deviceInfo['platform'])) {
-            $this->upsertDevice($user, $deviceInfo);
+        if ($user !== null) {
+            $this->recordDevice($user, $deviceInfo);
         }
 
         return $tokens;
+    }
+
+    /**
+     * Catat perangkat login bila app mengirim device_id + platform.
+     *
+     * @param  array{device_id?: string, platform?: string, os_version?: string|null, app_version?: string|null, device_name?: string|null, push_token?: string|null}  $deviceInfo
+     */
+    public function recordDevice(User $user, array $deviceInfo): void
+    {
+        if (isset($deviceInfo['device_id'], $deviceInfo['platform'])) {
+            $this->upsertDevice($user, $deviceInfo);
+        }
     }
 
     /**

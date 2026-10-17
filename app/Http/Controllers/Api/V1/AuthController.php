@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\AvatarRequest;
 use App\Http\Requests\Api\V1\ChangePasswordRequest;
+use App\Http\Requests\Api\V1\GoogleLoginRequest;
 use App\Http\Requests\Api\V1\LoginRequest;
 use App\Http\Requests\Api\V1\RefreshTokenRequest;
 use App\Http\Requests\Api\V1\RegisterRequest;
@@ -15,6 +16,7 @@ use App\Models\User;
 use App\Services\AssetDeletionService;
 use App\Services\AssetUploadService;
 use App\Services\Auth\AuthService;
+use App\Services\Auth\Google\GoogleAuthService;
 use App\Services\FileUploadService;
 use App\Support\ApiResponse;
 use Illuminate\Auth\Events\Registered;
@@ -72,6 +74,23 @@ class AuthController extends Controller
         $tokens['email_verified'] = $user?->hasVerifiedEmail() ?? false;
 
         return ApiResponse::success($tokens, 'Login successful');
+    }
+
+    /**
+     * Login / daftar dengan akun Google. Akun baru dibuat otomatis dari email
+     * Google yang terverifikasi; `is_new_user` memberi tahu app untuk langsung
+     * menampilkan form data diri.
+     *
+     * @unauthenticated
+     */
+    public function google(GoogleLoginRequest $request, GoogleAuthService $googleAuth): JsonResponse
+    {
+        $tokens = $googleAuth->login(
+            $request->string('id_token')->toString(),
+            $request->only(['device_id', 'platform', 'os_version', 'app_version', 'device_name', 'push_token']),
+        );
+
+        return ApiResponse::success([...$tokens, 'email_verified' => true], 'Login successful');
     }
 
     /**

@@ -4,6 +4,8 @@ namespace App\Providers;
 
 use App\Models\User;
 use App\Policies\RolePolicy;
+use App\Services\Auth\Google\GoogleAuthIdTokenVerifier;
+use App\Services\Auth\Google\GoogleIdTokenVerifier;
 use App\Services\Push\FcmDriver;
 use App\Services\Push\FcmDriverInterface;
 use App\Services\Push\LogFcmDriver;
@@ -28,6 +30,10 @@ class AppServiceProvider extends ServiceProvider
     {
         // SMS: swap LogSmsProvider for a real provider (Twilio, Vonage, etc.) in production.
         $this->app->singleton(SmsInterface::class, LogSmsProvider::class);
+
+        $this->app->singleton(GoogleIdTokenVerifier::class, fn (): GoogleIdTokenVerifier => new GoogleAuthIdTokenVerifier(
+            (array) config('services.google.client_ids'),
+        ));
 
         // Use the real FCM driver when Firebase credentials are configured; fall back to log driver.
         $this->app->singleton(FcmDriverInterface::class, function (): FcmDriverInterface {

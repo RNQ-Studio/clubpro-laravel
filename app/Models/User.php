@@ -27,6 +27,8 @@ use Spatie\Permission\Traits\HasRoles;
  * @property string $email
  * @property string|null $phone
  * @property string|null $avatar
+ * @property string|null $google_id
+ * @property string|null $google_avatar_url
  * @property bool $is_active
  * @property Carbon|null $email_verified_at
  * @property Carbon|null $phone_verified_at

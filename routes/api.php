@@ -56,6 +56,7 @@ Route::prefix('v1')->group(function (): void {
     Route::prefix('auth')->group(function (): void {
         Route::post('register', [AuthController::class, 'register'])->middleware(['throttle:6,1', 'check.maintenance']);
         Route::post('login', [AuthController::class, 'login'])->middleware(['throttle:6,1', 'check.maintenance']);
+        Route::post('google', [AuthController::class, 'google'])->middleware(['throttle:10,1', 'check.maintenance']);
         Route::post('refresh', [AuthController::class, 'refresh'])->middleware(['throttle:6,1', 'check.maintenance']);
         Route::post('forgot-password', [PasswordResetController::class, 'sendResetLink'])
             ->middleware(['throttle:6,1', 'check.maintenance']);

@@ -26,6 +26,8 @@ class UserResource extends JsonResource
                 $avatarUrl = app(FileUploadService::class)->url($this->avatar);
             }
         }
+        // Belum unggah foto sendiri → pakai foto akun Google bila ada.
+        $avatarUrl ??= $this->google_avatar_url;
 
         return [
             'id' => $this->id,
