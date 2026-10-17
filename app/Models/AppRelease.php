@@ -95,7 +95,7 @@ class AppRelease extends Model
 
     /**
      * Nama file saat diunduh: nama aplikasi, channel, versi, build, dan waktu unggah.
-     * Contoh: ClubPro-Dev-v1.2.0-build15-2026-10-17-1030WIB.apk
+     * Contoh: Anak-Langit-Archery-Dev-v1.2.0-build15-2026-10-17-1030WIB.apk
      */
     public function getDownloadFilenameAttribute(): string
     {
