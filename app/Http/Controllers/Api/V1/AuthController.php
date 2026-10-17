@@ -18,6 +18,7 @@ use App\Services\AssetUploadService;
 use App\Services\Auth\AuthService;
 use App\Services\Auth\Google\GoogleAuthService;
 use App\Services\FileUploadService;
+use App\Services\MemberProfileService;
 use App\Support\ApiResponse;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\JsonResponse;
@@ -113,13 +114,18 @@ class AuthController extends Controller
         return ApiResponse::success(new UserResource($user), 'OK');
     }
 
-    public function updateProfile(UpdateProfileRequest $request): JsonResponse
+    /**
+     * Simpan sebagian data diri; isian yang tidak dikirim tidak berubah.
+     */
+    public function updateProfile(UpdateProfileRequest $request, MemberProfileService $profiles): JsonResponse
     {
         /** @var User $user */
         $user = $request->user();
-        $user->update($request->validated());
 
-        return ApiResponse::success(new UserResource($user->refresh()), 'Profile updated');
+        return ApiResponse::success(
+            new UserResource($profiles->update($user, $request->validated())),
+            'Profile updated',
+        );
     }
 
     public function changePassword(ChangePasswordRequest $request): JsonResponse

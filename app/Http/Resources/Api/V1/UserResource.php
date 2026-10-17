@@ -4,6 +4,7 @@ namespace App\Http\Resources\Api\V1;
 
 use App\Models\User;
 use App\Services\FileUploadService;
+use App\Services\MemberProfileService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Str;
@@ -35,6 +36,16 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'phone' => $this->phone,
             'avatar_url' => $avatarUrl,
+            'gender' => $this->gender?->value,
+            'birth_place' => $this->birth_place,
+            'birth_date' => $this->birth_date?->format('Y-m-d'),
+            'address' => $this->address,
+            'archery_started_at' => $this->archery_started_at?->format('Y-m-d'),
+            'bow_type' => $this->bow_type?->value,
+            'blood_type' => $this->blood_type?->value,
+            'emergency_contact_name' => $this->emergency_contact_name,
+            'emergency_contact_phone' => $this->emergency_contact_phone,
+            'profile_completion' => app(MemberProfileService::class)->completion($this->resource),
             'is_active' => $this->is_active,
             'roles' => $this->getRoleNames()->values(),
             'permissions' => $this->getAllPermissions()->pluck('name')->values(),
