@@ -4,6 +4,7 @@ namespace Tests\Feature\BackOffice;
 
 use App\Filament\Pages\SendNotificationPage;
 use App\Filament\Resources\AppConfigs\AppConfigResource;
+use App\Filament\Resources\AppReleases\AppReleaseResource;
 use App\Filament\Resources\AppVersions\AppVersionResource;
 use App\Filament\Resources\Categories\CategoryResource;
 use App\Filament\Resources\Roles\RoleResource;
@@ -52,6 +53,10 @@ class ResourceAuthorizationTest extends TestCase
             ->assertOk();
 
         $this->actingAs($admin)
+            ->get(AppReleaseResource::getUrl('index'))
+            ->assertOk();
+
+        $this->actingAs($admin)
             ->get(SendNotificationPage::getUrl())
             ->assertOk();
     }
@@ -86,6 +91,11 @@ class ResourceAuthorizationTest extends TestCase
         // Staff is BLOCKED from app versions
         $this->actingAs($staff)
             ->get(AppVersionResource::getUrl('index'))
+            ->assertForbidden();
+
+        // Staff is BLOCKED from APK releases
+        $this->actingAs($staff)
+            ->get(AppReleaseResource::getUrl('index'))
             ->assertForbidden();
 
         // Staff is BLOCKED from sending push notifications

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\AppConfig;
+use App\Models\AppRelease;
 use App\Models\AppVersion;
 use App\Models\Article;
 use App\Models\Category;
@@ -34,6 +35,9 @@ class ModelFactoryTest extends TestCase
 
         $appVersion = AppVersion::factory()->create();
         $this->assertDatabaseHas('app_versions', ['id' => $appVersion->id]);
+
+        $appRelease = AppRelease::factory()->create();
+        $this->assertDatabaseHas('app_releases', ['id' => $appRelease->id]);
 
         $notification = Notification::factory()->create(['user_id' => $user->id]);
         $this->assertDatabaseHas('notifications', ['id' => $notification->id]);

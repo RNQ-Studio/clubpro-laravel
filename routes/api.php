@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\UserExcelController;
 use App\Http\Controllers\Api\V1\AppController;
+use App\Http\Controllers\Api\V1\AppReleaseController;
 use App\Http\Controllers\Api\V1\ArticleController;
 use App\Http\Controllers\Api\V1\AssetController;
 use App\Http\Controllers\Api\V1\AuthController;
@@ -33,6 +34,17 @@ Route::prefix('v1')->group(function (): void {
     Route::prefix('app')->group(function (): void {
         Route::get('version', [AppController::class, 'version'])->middleware('throttle:60,1');
         Route::get('config', [AppController::class, 'config'])->middleware('throttle:60,1');
+        Route::get('releases/latest', [AppReleaseController::class, 'latest'])->middleware('throttle:60,1');
+    });
+
+    // Distribusi APK (rilis development) — upload ber-chunk oleh skrip rilis.
+    Route::prefix('app/releases/uploads')->middleware('auth:api')->group(function (): void {
+        Route::post('/', [AppReleaseController::class, 'startUpload'])->middleware('throttle:30,1');
+        Route::get('{upload}', [AppReleaseController::class, 'showUpload'])->middleware('throttle:120,1');
+        // Chunk bisa kecil (≤1 MB bila nginx membatasi body), jadi batasnya longgar.
+        Route::post('{upload}/chunks', [AppReleaseController::class, 'uploadChunk'])->middleware('throttle:1200,1');
+        Route::post('{upload}/complete', [AppReleaseController::class, 'completeUpload'])->middleware('throttle:30,1');
+        Route::delete('{upload}', [AppReleaseController::class, 'abortUpload'])->middleware('throttle:30,1');
     });
 
     // OTP endpoints (unauthenticated, heavily throttled)
