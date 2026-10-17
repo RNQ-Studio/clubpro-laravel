@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\AppReleaseController;
 use App\Http\Controllers\Api\V1\ArticleController;
 use App\Http\Controllers\Api\V1\AssetController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\BannerController;
 use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
@@ -87,6 +88,9 @@ Route::prefix('v1')->group(function (): void {
     });
 
     Route::apiResource('quotes', QuoteController::class);
+
+    // Banner slider Beranda (publik, dikelola admin di back-office).
+    Route::get('banners', [BannerController::class, 'index'])->middleware('throttle:60,1');
 
     Route::middleware(['auth:api', 'check.maintenance'])->group(function (): void {
         Route::post('assets/upload', [AssetController::class, 'upload'])->middleware('throttle:30,1');

@@ -6,6 +6,7 @@ use App\Models\AppConfig;
 use App\Models\AppRelease;
 use App\Models\AppVersion;
 use App\Models\Article;
+use App\Models\Banner;
 use App\Models\Category;
 use App\Models\Notification;
 use App\Models\OtpCode;
@@ -38,6 +39,9 @@ class ModelFactoryTest extends TestCase
 
         $appRelease = AppRelease::factory()->create();
         $this->assertDatabaseHas('app_releases', ['id' => $appRelease->id]);
+
+        $banner = Banner::factory()->create();
+        $this->assertDatabaseHas('banners', ['id' => $banner->id]);
 
         $notification = Notification::factory()->create(['user_id' => $user->id]);
         $this->assertDatabaseHas('notifications', ['id' => $notification->id]);
