@@ -30,13 +30,13 @@ return [
     /*
     | Allowed origin strings.
     | For local testing or general APIs, '*' is acceptable.
-    | For production, specify concrete web origins, e.g., ['https://my-app.com'].
+    | For production, specify concrete web origins, e.g., ['https://anaklangit.manahpro.web.id'].
     */
     'allowed_origins' => ['*'],
 
     /*
     | Regular expression patterns matching allowed origins.
-    | Useful for wildcards in subdomains, e.g. ['https://*.my-app.com']
+    | Useful for wildcards in subdomains, e.g. ['https://*.manahpro.web.id']
     */
     'allowed_origins_patterns' => [],
 

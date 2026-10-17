@@ -381,7 +381,7 @@
                     </div>
                     <div>
                         <p class="text-sm font-semibold text-gray-900">Landing Page</p>
-                        <p class="text-xs text-gray-400">localhost:8000</p>
+                        <p class="text-xs text-gray-400">{{ request()->getHttpHost() }}</p>
                     </div>
                 </a>
 
@@ -395,7 +395,7 @@
                     </div>
                     <div>
                         <p class="text-sm font-semibold text-gray-900">Admin Panel (Filament)</p>
-                        <p class="text-xs text-gray-400">localhost:8000/admin</p>
+                        <p class="text-xs text-gray-400">{{ request()->getHttpHost() }}/admin</p>
                     </div>
                 </a>
 
@@ -408,7 +408,7 @@
                     </div>
                     <div>
                         <p class="text-sm font-semibold text-gray-900">API Docs (Scramble)</p>
-                        <p class="text-xs text-gray-400">localhost:8000/docs/api</p>
+                        <p class="text-xs text-gray-400">{{ request()->getHttpHost() }}/docs/api</p>
                     </div>
                 </a>
 
@@ -421,7 +421,7 @@
                     </div>
                     <div>
                         <p class="text-sm font-semibold text-gray-900">Berita AI &amp; Blog (Tanpa Login)</p>
-                        <p class="text-xs text-gray-400">localhost:8000/articles</p>
+                        <p class="text-xs text-gray-400">{{ request()->getHttpHost() }}/articles</p>
                     </div>
                 </a>
 
@@ -434,7 +434,7 @@
                     </div>
                     <div>
                         <p class="text-sm font-semibold text-gray-900">Health Check API</p>
-                        <p class="text-xs text-gray-400">localhost:8000/api/v1/health</p>
+                        <p class="text-xs text-gray-400">{{ request()->getHttpHost() }}/api/v1/health</p>
                     </div>
                 </a>
             </div>

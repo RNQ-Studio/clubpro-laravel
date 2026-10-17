@@ -138,6 +138,9 @@ Setelah kontainer berjalan, untuk menghentikan kontainer Anda dapat menjalankan 
 
 ## 🌐 Cara Mengakses Aplikasi
 
+### Produksi
+Backend ClubPro hanya satu: **[https://anaklangit.manahpro.web.id](https://anaklangit.manahpro.web.id)** — panel admin di `/admin`, health check di `/api/v1/health`, base URL API app mobile `https://anaklangit.manahpro.web.id/api/`. Alamat `localhost` di bawah hanya untuk server dev lokal.
+
 Setelah seluruh proses inisialisasi selesai dan server dev berjalan, Anda dapat mengakses layanan di alamat berikut:
 
 ### A. Jika Menggunakan Opsi A (Tooling Lokal / PHP Artisan)

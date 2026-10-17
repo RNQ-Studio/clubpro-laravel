@@ -4,8 +4,8 @@ Server menyimpan **satu APK terbaru per app + channel** dan menyajikannya lewat
 link yang tidak pernah berubah:
 
 ```
-https://<domain>/apk/main/dev        # app main, channel dev
-https://<domain>/apk/variant/dev
+https://anaklangit.manahpro.web.id/apk/main/dev        # app main, channel dev
+https://anaklangit.manahpro.web.id/apk/variant/dev
 ```
 
 Rilis baru menggantikan file lama; file lama langsung dihapus dari storage, jadi

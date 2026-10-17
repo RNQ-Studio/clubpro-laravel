@@ -16,6 +16,13 @@ This file serves as a quick entrypoint and guide for AI Coding Agents (such as C
 
 ---
 
+## 🌐 Production Backend
+
+- **Satu-satunya domain backend: `https://anaklangit.manahpro.web.id`** (app mobile memakai `https://anaklangit.manahpro.web.id/api/`).
+- Jangan menambahkan, mendokumentasikan, atau mengarahkan apa pun ke domain lain. `localhost`/`127.0.0.1` hanya untuk server dev lokal.
+
+---
+
 ## 🛠️ Commands Reference
 
 ### Environment Control

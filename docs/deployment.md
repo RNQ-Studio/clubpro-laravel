@@ -25,7 +25,7 @@ Ensure the following production settings are specified in your host `.env` file:
 APP_NAME="Laravel Starter"
 APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://your-domain.com
+APP_URL=https://anaklangit.manahpro.web.id
 
 # PostgreSQL Connection
 DB_CONNECTION=pgsql
@@ -49,10 +49,10 @@ REDIS_PORT=6379
 MAIL_MAILER=smtp
 MAIL_HOST=smtp.mailgun.org
 MAIL_PORT=587
-MAIL_USERNAME=postmaster@your-domain.com
+MAIL_USERNAME=postmaster@anaklangit.manahpro.web.id
 MAIL_PASSWORD=your_smtp_password
 MAIL_ENCRYPTION=tls
-MAIL_FROM_ADDRESS="no-reply@your-domain.com"
+MAIL_FROM_ADDRESS="no-reply@anaklangit.manahpro.web.id"
 MAIL_FROM_NAME="${APP_NAME}"
 
 # Passport Keys
@@ -70,18 +70,18 @@ Deploy the following Nginx virtual host block, ensuring that HTTP traffic is aut
 server {
     listen 80;
     listen [::]:80;
-    server_name your-domain.com;
+    server_name anaklangit.manahpro.web.id;
     return 301 https://$server_name$request_uri;
 }
 
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name your-domain.com;
+    server_name anaklangit.manahpro.web.id;
     root /var/www/laravel-starter/public;
 
-    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/anaklangit.manahpro.web.id/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/anaklangit.manahpro.web.id/privkey.pem;
     
     add_header X-Frame-Options "SAMEORIGIN";
     add_header X-Content-Type-Options "nosniff";
