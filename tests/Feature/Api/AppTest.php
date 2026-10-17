@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Models\AppConfig;
 use App\Models\AppVersion;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
 
 class AppTest extends TestCase
@@ -150,5 +151,34 @@ class AppTest extends TestCase
         AppVersion::create(['platform' => 'android', 'min_version' => '1.0.0', 'latest_version' => '1.0.0', 'force_update' => false]);
 
         $this->getJson('/api/v1/app/version?platform=android')->assertOk();
+    }
+
+    /**
+     * Store `array` (bawaan test) tidak men-serialize, jadi pakai `file` seperti
+     * database/redis di server: nilai yang dibaca ulang dari cache harus tetap utuh.
+     */
+    public function test_cached_config_survives_a_serializing_cache_store(): void
+    {
+        config(['cache.default' => 'file']);
+        Cache::flush();
+
+        try {
+            AppConfig::create(['key' => 'maintenance_mode', 'value' => 'true', 'type' => 'boolean']);
+            AppConfig::create(['key' => 'maintenance_message', 'value' => 'Down.', 'type' => 'string']);
+
+            $this->assertTrue(AppConfig::get('maintenance_mode'));
+            // Pembacaan kedua datang dari cache file (hasil unserialize).
+            $this->assertTrue(AppConfig::get('maintenance_mode'));
+            $this->assertSame('fallback', AppConfig::get('missing', 'fallback'));
+            $this->assertSame('fallback', AppConfig::get('missing', 'fallback'));
+
+            // Middleware check.maintenance membaca AppConfig dari cache di tiap request.
+            $this->postJson('/api/v1/auth/login', ['email' => 'x@x.com', 'password' => 'pw'])->assertStatus(503);
+            $this->postJson('/api/v1/auth/login', ['email' => 'x@x.com', 'password' => 'pw'])
+                ->assertStatus(503)
+                ->assertJsonPath('message', 'Down.');
+        } finally {
+            Cache::flush();
+        }
     }
 }

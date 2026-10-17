@@ -39,18 +39,21 @@ class AppConfig extends Model
 
     public static function get(string $key, mixed $default = null): mixed
     {
-        /** @var AppConfig|null $config */
-        $config = Cache::remember(
-            "app_config:{$key}",
-            now()->addHour(),
-            fn () => static::query()->where('key', $key)->first()
-        );
+        // Yang di-cache array skalar, bukan model: cache Laravel 13 tidak meng-unserialize
+        // objek (cache.serializable_classes = false), sehingga model yang di-cache kembali
+        // sebagai __PHP_Incomplete_Class dan setiap request ber-check.maintenance error 500.
+        /** @var array{exists: bool, value?: mixed} $cached */
+        $cached = Cache::remember(self::cacheKey($key), now()->addHour(), function () use ($key): array {
+            $config = static::query()->where('key', $key)->first();
 
-        if ($config === null) {
+            return $config === null ? ['exists' => false] : ['exists' => true, 'value' => $config->castValue()];
+        });
+
+        if (! $cached['exists']) {
             return $default;
         }
 
-        return $config->castValue();
+        return $cached['value'] ?? null;
     }
 
     public static function set(string $key, mixed $value): void
@@ -60,7 +63,7 @@ class AppConfig extends Model
         $config->value = is_array($value) ? json_encode($value) : (string) $value;
         $config->save();
 
-        Cache::forget("app_config:{$key}");
+        Cache::forget(self::cacheKey($key));
     }
 
     public static function allPublic(): array
@@ -75,9 +78,15 @@ class AppConfig extends Model
     public static function bustCache(?string $key = null): void
     {
         if ($key !== null) {
-            Cache::forget("app_config:{$key}");
+            Cache::forget(self::cacheKey($key));
         }
         Cache::forget('app_config:all');
+    }
+
+    /** Kunci v2: entri lama berisi model ter-serialize yang tidak bisa dibaca lagi. */
+    private static function cacheKey(string $key): string
+    {
+        return "app_config:v2:{$key}";
     }
 
     private function castValue(): mixed
