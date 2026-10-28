@@ -40,8 +40,6 @@ class UserResource extends JsonResource
             'birth_place' => $this->birth_place,
             'birth_date' => $this->birth_date?->format('Y-m-d'),
             'address' => $this->address,
-            'archery_started_at' => $this->archery_started_at?->format('Y-m-d'),
-            'bow_type' => $this->bow_type?->value,
             'blood_type' => $this->blood_type?->value,
             'emergency_contact_name' => $this->emergency_contact_name,
             'emergency_contact_phone' => $this->emergency_contact_phone,

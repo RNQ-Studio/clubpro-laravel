@@ -5,7 +5,7 @@ namespace App\Services;
 use App\Models\User;
 
 /**
- * Data diri anggota club: pembaruan sebagian dan perhitungan kelengkapan profil.
+ * Data diri anggota: pembaruan sebagian dan perhitungan kelengkapan profil.
  */
 class MemberProfileService
 {
@@ -22,8 +22,6 @@ class MemberProfileService
         'birth_date' => 'Tanggal lahir',
         'phone' => 'Nomor HP / WhatsApp',
         'address' => 'Alamat',
-        'archery_started_at' => 'Mulai berlatih panahan',
-        'bow_type' => 'Jenis busur',
         'blood_type' => 'Golongan darah',
         'emergency_contact_name' => 'Nama kontak darurat',
         'emergency_contact_phone' => 'Nomor kontak darurat',

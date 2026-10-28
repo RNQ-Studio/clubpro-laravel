@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\MemberProfileService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 use Laravel\Passport\Passport;
 use Tests\TestCase;
 
@@ -36,8 +37,6 @@ class MemberProfileTest extends TestCase
             'birth_date' => '2001-04-12',
             'phone' => '081234567890',
             'address' => 'Jl. Merdeka No. 10, Bandung',
-            'archery_started_at' => '2019-07-01',
-            'bow_type' => 'recurve',
             'blood_type' => 'O',
             'emergency_contact_name' => 'Ibu Sari',
             'emergency_contact_phone' => '081298765432',
@@ -64,17 +63,17 @@ class MemberProfileTest extends TestCase
 
         $missing = collect($response->json('data.profile_completion.missing'))->pluck('key');
         $this->assertContains('avatar', $missing);
-        $this->assertContains('archery_started_at', $missing);
+        $this->assertContains('blood_type', $missing);
         $this->assertNotContains('gender', $missing);
     }
 
     public function test_omitted_fields_are_left_untouched(): void
     {
-        $this->user->update(['address' => 'Jl. Lama', 'bow_type' => 'compound']);
+        $this->user->update(['address' => 'Jl. Lama', 'blood_type' => 'B']);
 
         $this->putJson('/api/v1/auth/me', ['birth_place' => 'Garut'])->assertOk()
             ->assertJsonPath('data.address', 'Jl. Lama')
-            ->assertJsonPath('data.bow_type', 'compound')
+            ->assertJsonPath('data.blood_type', 'B')
             ->assertJsonPath('data.birth_place', 'Garut')
             ->assertJsonPath('data.name', 'Rina');
     }
@@ -143,30 +142,30 @@ class MemberProfileTest extends TestCase
     {
         $this->putJson('/api/v1/auth/me', [
             'gender' => 'other',
-            'bow_type' => 'slingshot',
             'blood_type' => 'C',
             'birth_date' => '2030-01-01',
             'phone' => '12',
         ])->assertStatus(422)
-            ->assertJsonValidationErrors(['gender', 'bow_type', 'blood_type', 'birth_date', 'phone']);
+            ->assertJsonValidationErrors(['gender', 'blood_type', 'birth_date', 'phone']);
     }
 
-    public function test_archery_start_cannot_precede_birth_date(): void
+    public function test_archery_fields_are_removed(): void
     {
+        $this->assertFalse(Schema::hasColumn('users', 'archery_started_at'));
+        $this->assertFalse(Schema::hasColumn('users', 'bow_type'));
+        $this->assertArrayNotHasKey('archery_started_at', MemberProfileService::COMPLETION_FIELDS);
+        $this->assertArrayNotHasKey('bow_type', MemberProfileService::COMPLETION_FIELDS);
+
+        // App lama yang masih mengirim isian panahan tidak gagal; isian diabaikan.
         $this->putJson('/api/v1/auth/me', [
-            'birth_date' => '2005-01-01',
-            'archery_started_at' => '2004-06-01',
-        ])->assertStatus(422)
-            ->assertJsonValidationErrors(['archery_started_at']);
-
-        // Juga dibandingkan dengan tanggal lahir yang sudah tersimpan.
-        $this->user->update(['birth_date' => '2005-01-01']);
-        $this->putJson('/api/v1/auth/me', ['archery_started_at' => '2004-06-01'])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['archery_started_at']);
-
-        $this->putJson('/api/v1/auth/me', ['archery_started_at' => '2015-06-01'])->assertOk()
-            ->assertJsonPath('data.archery_started_at', '2015-06-01');
+            'address' => 'Jl. Baru',
+            'archery_started_at' => '2019-07-01',
+            'bow_type' => 'recurve',
+        ])->assertOk()
+            ->assertJsonPath('data.address', 'Jl. Baru')
+            ->assertJsonMissingPath('data.archery_started_at')
+            ->assertJsonMissingPath('data.bow_type')
+            ->assertJsonPath('data.profile_completion.total', 10);
     }
 
     public function test_me_includes_member_fields(): void
@@ -174,9 +173,9 @@ class MemberProfileTest extends TestCase
         $this->user->update($this->fullProfile());
 
         $this->getJson('/api/v1/auth/me')->assertOk()
-            ->assertJsonPath('data.bow_type', 'recurve')
             ->assertJsonPath('data.blood_type', 'O')
-            ->assertJsonPath('data.archery_started_at', '2019-07-01')
+            ->assertJsonPath('data.emergency_contact_name', 'Ibu Sari')
+            ->assertJsonMissingPath('data.bow_type')
             ->assertJsonStructure(['data' => ['profile_completion' => ['is_complete', 'completed', 'total', 'percent', 'missing']]]);
     }
 }

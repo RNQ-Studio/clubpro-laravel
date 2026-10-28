@@ -7,7 +7,6 @@ use App\Services\AssetDeletionService;
 use App\Services\AssetUploadService;
 use App\Services\FileUploadService;
 use App\Support\Enums\BloodType;
-use App\Support\Enums\BowType;
 use App\Support\Enums\Gender;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
@@ -147,14 +146,6 @@ class UserForm
                             ->rows(2)
                             ->maxLength(1000)
                             ->columnSpanFull(),
-                        DatePicker::make('archery_started_at')
-                            ->label('Mulai berlatih panahan')
-                            ->native(false)
-                            ->displayFormat('F Y')
-                            ->maxDate(now()),
-                        Select::make('bow_type')
-                            ->label('Jenis busur')
-                            ->options(collect(BowType::cases())->mapWithKeys(fn (BowType $b): array => [$b->value => $b->label()])),
                         Select::make('blood_type')
                             ->label('Golongan darah')
                             ->options(collect(BloodType::cases())->mapWithKeys(fn (BloodType $b): array => [$b->value => $b->value])),

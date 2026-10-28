@@ -3,13 +3,9 @@
 namespace App\Http\Requests\Api\V1;
 
 use App\Support\Enums\BloodType;
-use App\Support\Enums\BowType;
 use App\Support\Enums\Gender;
-use Closure;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Validator;
 
 /**
  * Pembaruan sebagian data diri: hanya isian yang dikirim yang diubah, dan
@@ -54,38 +50,9 @@ class UpdateProfileRequest extends FormRequest
             'birth_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after:1900-01-01', 'before:today'],
             'phone' => ['sometimes', ...$phone, Rule::unique('users', 'phone')->ignore($userId)],
             'address' => ['sometimes', 'nullable', 'string', 'max:1000'],
-            'archery_started_at' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after:1900-01-01', 'before_or_equal:today'],
-            'bow_type' => ['sometimes', 'nullable', Rule::enum(BowType::class)],
             'blood_type' => ['sometimes', 'nullable', Rule::enum(BloodType::class)],
             'emergency_contact_name' => ['sometimes', 'nullable', 'string', 'max:100'],
             'emergency_contact_phone' => ['sometimes', ...$phone],
-        ];
-    }
-
-    /**
-     * @return array<int, Closure(Validator): void>
-     */
-    public function after(): array
-    {
-        return [
-            function (Validator $validator): void {
-                $started = $this->input('archery_started_at');
-                if (! is_string($started) || $validator->errors()->hasAny(['archery_started_at', 'birth_date'])) {
-                    return;
-                }
-
-                // Bandingkan dengan tanggal lahir yang dikirim, atau yang sudah tersimpan.
-                $birth = $this->has('birth_date')
-                    ? $this->input('birth_date')
-                    : $this->user()?->birth_date?->format('Y-m-d');
-
-                if (is_string($birth) && Carbon::parse($started)->lt(Carbon::parse($birth))) {
-                    $validator->errors()->add(
-                        'archery_started_at',
-                        'The archery start date cannot be before the birth date.',
-                    );
-                }
-            },
         ];
     }
 }
