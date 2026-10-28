@@ -12,7 +12,7 @@ Rilis baru menggantikan file lama; file lama langsung dihapus dari storage, jadi
 server tidak menumpuk APK. Nama file saat diunduh dibentuk dari metadata rilis:
 
 ```
-Anak-Langit-Archery-Dev-v1.2.0-build15-2026-10-17-1030WIB.apk
+CEO-Dev-v1.2.0-build15-2026-10-17-1030WIB.apk
 <nama app>-<channel>-v<versionName>-build<versionCode>-<tanggal>-<jam><zona>.apk
 ```
 

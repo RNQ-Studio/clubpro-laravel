@@ -51,10 +51,10 @@ class AppReleaseTest extends TestCase
         $release = $this->uploadApk($apk, ['version_name' => '1.2.0', 'version_code' => 7, 'release_notes' => 'Perbaikan login.'])
             ->assertCreated()
             ->assertJsonPath('data.app', 'main')
-            ->assertJsonPath('data.app_name', 'Anak Langit Archery')
+            ->assertJsonPath('data.app_name', 'CEO')
             ->assertJsonPath('data.version_code', 7)
             ->assertJsonPath('data.file_sha256', hash('sha256', $apk))
-            ->assertJsonPath('data.download_filename', 'Anak-Langit-Archery-Dev-v1.2.0-build7-2026-10-17-1030WIB.apk')
+            ->assertJsonPath('data.download_filename', 'CEO-Dev-v1.2.0-build7-2026-10-17-1030WIB.apk')
             ->json('data');
 
         $this->assertStringEndsWith('/apk/main/dev', $release['download_url']);
@@ -65,7 +65,7 @@ class AppReleaseTest extends TestCase
         $this->assertSame('application/vnd.android.package-archive', $download->headers->get('Content-Type'));
         $this->assertStringContainsString('no-store', (string) $download->headers->get('Cache-Control'));
         $this->assertStringContainsString(
-            'attachment; filename=Anak-Langit-Archery-Dev-v1.2.0-build7-2026-10-17-1030WIB.apk',
+            'attachment; filename=CEO-Dev-v1.2.0-build7-2026-10-17-1030WIB.apk',
             (string) $download->headers->get('Content-Disposition'),
         );
 

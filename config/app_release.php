@@ -34,7 +34,7 @@ return [
 
     // Slug app di URL => nama aplikasi pada nama file unduhan.
     'apps' => [
-        'main' => 'Anak Langit Archery',
+        'main' => 'CEO',
         'variant' => 'ClubPro Variant',
     ],
 
