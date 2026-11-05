@@ -14,16 +14,15 @@ use Throwable;
 
 class AssetUploadService
 {
-    private const DISK = 'gcs';
-
     public function __construct(
         private readonly AssetMetadataExtractor $metadataExtractor,
     ) {}
 
     /**
-     * Upload file langsung ke GCS lalu simpan record asset.
-     * Atomic: bila upload GCS gagal, tidak ada record DB yang dibuat;
-     * bila penyimpanan DB gagal setelah upload, file GCS yang sudah terupload dihapus kembali.
+     * Upload file ke disk aset (GCS bila terkonfigurasi, selain itu storage server)
+     * lalu simpan record asset.
+     * Atomic: bila upload gagal, tidak ada record DB yang dibuat;
+     * bila penyimpanan DB gagal setelah upload, file yang sudah terupload dihapus kembali.
      */
     public function upload(
         UploadedFile $file,
@@ -32,7 +31,11 @@ class AssetUploadService
         ?Carbon $retainUntil = null,
         bool $isProtected = false,
     ): Asset {
-        // UUID dipakai sekaligus sebagai PK asset dan nama file di GCS (tidak bisa ditebak).
+        $storageType = config('filesystems.assets') === StorageType::Gcs->disk()
+            ? StorageType::Gcs
+            : StorageType::Local;
+
+        // UUID dipakai sekaligus sebagai PK asset dan nama file di storage (tidak bisa ditebak).
         $uuid = (string) Str::uuid();
         $extension = $file->getClientOriginalExtension() ?: $file->guessExtension() ?: 'bin';
 
@@ -50,21 +53,22 @@ class AssetUploadService
         // Ekstrak metadata SEBELUM upload — setelah store(), file sementara sudah dipindah.
         $metadata = $this->metadataExtractor->extract($file);
 
-        $disk = Storage::disk(self::DISK);
+        $disk = Storage::disk($storageType->disk());
 
         // Disk 'gcs' dikonfigurasi 'throw' => true, jadi kegagalan upload melempar exception
         // (tertangkap handler global) dan kita tidak pernah sampai membuat record DB.
         $stored = $disk->putFileAs($folder, $file, $filename);
         if ($stored === false) {
-            throw new RuntimeException('Failed to upload file to Google Cloud Storage.');
+            throw new RuntimeException('Failed to store the uploaded file.');
         }
 
         try {
             $asset = new Asset([
                 'user_id' => $userId,
-                'storage_type' => StorageType::Gcs,
+                'storage_type' => $storageType,
                 'path' => $path,
-                'url' => $disk->url($path),
+                // Storage server tidak memakai URL tersimpan: lihat Asset::getPublicUrl().
+                'url' => $storageType === StorageType::Gcs ? $disk->url($path) : null,
                 'original_filename' => $file->getClientOriginalName(),
                 'extension' => $extension,
                 'mime_type' => $file->getMimeType() ?? $file->getClientMimeType(),
@@ -84,7 +88,7 @@ class AssetUploadService
 
             return $asset;
         } catch (Throwable $e) {
-            // Kompensasi: bersihkan file yatim di GCS agar tidak ada orphan tanpa record.
+            // Kompensasi: bersihkan file yatim agar tidak ada orphan tanpa record.
             $disk->delete($path);
 
             throw $e;

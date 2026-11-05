@@ -153,6 +153,17 @@ class Asset extends Model
     }
 
     /**
+     * Berkas lokal yang boleh disajikan lewat route `assets.file`. Hanya gambar raster:
+     * SVG bisa memuat skrip yang berjalan di domain back-office.
+     */
+    public function isServableImage(): bool
+    {
+        return $this->isLocal()
+            && $this->status === AssetStatus::Active
+            && in_array($this->mime_type, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true);
+    }
+
+    /**
      * URL publik file. Pakai url yang tersimpan bila ada (mis. CDN/GCS signed URL),
      * jika tidak, bangun dari disk yang sesuai via Storage facade.
      */
@@ -164,6 +175,10 @@ class Asset extends Model
 
         if (filled($this->url)) {
             return $this->url;
+        }
+
+        if ($this->isServableImage()) {
+            return route('assets.file', $this);
         }
 
         return Storage::disk($this->storage_type->disk())->url($this->path);

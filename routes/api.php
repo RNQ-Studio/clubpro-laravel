@@ -93,6 +93,12 @@ Route::prefix('v1')->group(function (): void {
     // Banner slider Beranda (publik, dikelola admin di back-office).
     Route::get('banners', [BannerController::class, 'index'])->middleware('throttle:60,1');
 
+    // Berkas gambar di storage server; lewat API agar CORS berlaku untuk app web.
+    Route::get('assets/{asset}/file', [AssetController::class, 'file'])
+        ->whereUuid('asset')
+        ->name('assets.file')
+        ->middleware('throttle:600,1');
+
     Route::middleware(['auth:api', 'check.maintenance', 'track.activity'])->group(function (): void {
         Route::post('assets/upload', [AssetController::class, 'upload'])->middleware('throttle:30,1');
 

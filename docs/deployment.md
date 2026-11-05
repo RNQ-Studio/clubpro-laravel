@@ -149,6 +149,10 @@ Feeds the approximate location shown in the app's Admin Panel. The file (~130 MB
 CC BY 4.0) lives in `storage/app/geoip/`, so member IPs never leave the server. The scheduler
 refreshes it monthly. Without it everything keeps working and locations stay empty.
 
+Uploads go to Google Cloud Storage when `GOOGLE_CLOUD_STORAGE_BUCKET` is set, otherwise to
+`storage/app/public` on this server, served through `GET /api/v1/assets/{id}/file` (no
+`storage:link` needed). Set `ASSET_DISK` to force one of them.
+
 ### Step 5: Generate OAuth Keys (First-time setup only)
 ```bash
 php artisan passport:keys
