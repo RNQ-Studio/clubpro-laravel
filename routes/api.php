@@ -9,12 +9,14 @@ use App\Http\Controllers\Api\V1\AssetController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BannerController;
 use App\Http\Controllers\Api\V1\CategoryController;
+use App\Http\Controllers\Api\V1\CommunityController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OtpController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
 use App\Http\Controllers\Api\V1\QuoteController;
+use App\Http\Controllers\Api\V1\RegionController;
 use App\Http\Controllers\Api\V1\TagController;
 use App\Support\ApiResponse;
 use Illuminate\Support\Facades\Route;
@@ -93,6 +95,9 @@ Route::prefix('v1')->group(function (): void {
     // Banner slider Beranda (publik, dikelola admin di back-office).
     Route::get('banners', [BannerController::class, 'index'])->middleware('throttle:60,1');
 
+    // Pilihan provinsi & kabupaten/kota.
+    Route::get('regions/indonesia', [RegionController::class, 'indonesia'])->middleware('throttle:60,1');
+
     // Berkas gambar di storage server; lewat API agar CORS berlaku untuk app web.
     Route::get('assets/{asset}/file', [AssetController::class, 'file'])
         ->whereUuid('asset')
@@ -101,6 +106,12 @@ Route::prefix('v1')->group(function (): void {
 
     Route::middleware(['auth:api', 'check.maintenance', 'track.activity'])->group(function (): void {
         Route::post('assets/upload', [AssetController::class, 'upload'])->middleware('throttle:30,1');
+
+        Route::get('community-types', [CommunityController::class, 'types']);
+        Route::get('communities', [CommunityController::class, 'index']);
+        Route::get('communities/mine', [CommunityController::class, 'mine']);
+        Route::get('communities/{community}', [CommunityController::class, 'show'])->whereNumber('community');
+        Route::post('communities', [CommunityController::class, 'store'])->middleware('throttle:10,1');
 
         Route::apiResource('categories', CategoryController::class);
         Route::apiResource('articles', ArticleController::class);
