@@ -5,6 +5,7 @@ namespace App\Services\Admin;
 use App\Models\User;
 use App\Services\Auth\AuthService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -140,7 +141,7 @@ class UserAdminService
      */
     private function loadAvatarAssets(LengthAwarePaginator $users): void
     {
-        $users->getCollection()
+        Collection::make($users->items())
             ->filter(fn (User $user): bool => Str::isUuid((string) $user->avatar))
             ->load('avatarAsset');
     }
