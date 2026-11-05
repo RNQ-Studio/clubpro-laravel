@@ -29,6 +29,9 @@ class CommunityResource extends JsonResource
             'province_name' => $this->province_name,
             'description' => Str::limit($this->description, 160),
             'created_at' => $this->created_at?->toIso8601String(),
+            'members_count' => $this->whenCounted('members'),
+            // `members` hanya dimuat untuk keanggotaan pengguna yang login.
+            'my_role' => $this->when($this->relationLoaded('members'), fn (): ?string => $this->members->first()?->role->value),
         ];
     }
 }

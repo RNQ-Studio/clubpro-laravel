@@ -5,6 +5,8 @@ namespace Database\Factories;
 use App\Models\Asset;
 use App\Models\Community;
 use App\Models\User;
+use App\Support\Enums\CommunityMemberRole;
+use App\Support\Enums\CommunityMemberStatus;
 use App\Support\Enums\CommunityStatus;
 use App\Support\Enums\CommunityType;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -37,6 +39,21 @@ class CommunityFactory extends Factory
             'contact_phone' => '081234567890',
             'logo_asset_id' => Asset::factory(),
         ];
+    }
+
+    /** Sama seperti pengajuan sungguhan: pengaju menjadi creator. */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Community $community): void {
+            if ($community->user_id !== null) {
+                $community->members()->create([
+                    'user_id' => $community->user_id,
+                    'role' => CommunityMemberRole::Creator,
+                    'status' => CommunityMemberStatus::Active,
+                    'joined_at' => $community->created_at,
+                ]);
+            }
+        });
     }
 
     public function approved(): static

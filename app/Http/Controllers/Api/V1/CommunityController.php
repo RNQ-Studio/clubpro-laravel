@@ -49,11 +49,25 @@ class CommunityController extends Controller
         return ApiResponse::success(CommunityResource::collection($communities));
     }
 
-    public function show(Community $community): JsonResponse
+    /**
+     * Komunitas yang diikuti pengguna yang login, untuk Beranda.
+     */
+    public function joined(Request $request): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        return ApiResponse::success(CommunityResource::collection($this->communities->joined($user)));
+    }
+
+    public function show(Request $request, Community $community): JsonResponse
     {
         $this->authorize('view', $community);
 
-        return ApiResponse::success(new CommunityDetailResource($community->load(['logo', 'photos'])));
+        /** @var User $user */
+        $user = $request->user();
+
+        return ApiResponse::success(new CommunityDetailResource($this->communities->detail($user, $community)));
     }
 
     /**
@@ -68,7 +82,7 @@ class CommunityController extends Controller
         $data = $request->validated();
 
         return ApiResponse::success(
-            new CommunityDetailResource($this->communities->submit($user, $data)->load(['logo', 'photos'])),
+            new CommunityDetailResource($this->communities->detail($user, $this->communities->submit($user, $data))),
             'Komunitas diajukan dan menunggu verifikasi',
             201,
         );

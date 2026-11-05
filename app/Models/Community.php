@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Enums\CommunityMemberStatus;
 use App\Support\Enums\CommunityStatus;
 use App\Support\Enums\CommunityType;
 use Database\Factories\CommunityFactory;
@@ -10,6 +11,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Spatie\Activitylog\LogOptions;
@@ -44,6 +46,10 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property-read User|null $owner
  * @property-read User|null $reviewer
  * @property-read Collection<int, Asset> $photos
+ * @property-read Collection<int, CommunityMember> $members
+ * @property-read int|null $members_count
+ * @property-read int|null $pending_members_count
+ * @property-read int|null $upcoming_activities_count
  */
 class Community extends Model
 {
@@ -109,6 +115,31 @@ class Community extends Model
         return $this->belongsToMany(Asset::class, 'community_photos')
             ->withPivot('sort_order')
             ->orderByPivot('sort_order');
+    }
+
+    /** @return HasMany<CommunityMember, $this> */
+    public function members(): HasMany
+    {
+        return $this->hasMany(CommunityMember::class);
+    }
+
+    /** @return HasMany<CommunityActivity, $this> */
+    public function activities(): HasMany
+    {
+        return $this->hasMany(CommunityActivity::class);
+    }
+
+    public function membershipOf(User $user): ?CommunityMember
+    {
+        return $this->members()->where('user_id', $user->getKey())->first();
+    }
+
+    /** Peran aktif pengguna ini boleh mengelola komunitas. */
+    public function isManagedBy(User $user): bool
+    {
+        $member = $this->membershipOf($user);
+
+        return $member?->status === CommunityMemberStatus::Active && $member->role->canManage();
     }
 
     /** @param  Builder<Community>  $query */

@@ -11,9 +11,13 @@ use App\Http\Controllers\Api\V1\AssetController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BannerController;
 use App\Http\Controllers\Api\V1\CategoryController;
+use App\Http\Controllers\Api\V1\CommunityActivityController;
 use App\Http\Controllers\Api\V1\CommunityController;
+use App\Http\Controllers\Api\V1\CommunityMemberController;
+use App\Http\Controllers\Api\V1\CommunityPhotoController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\MemberProfileController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OtpController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
@@ -114,6 +118,27 @@ Route::prefix('v1')->group(function (): void {
         Route::get('communities/mine', [CommunityController::class, 'mine']);
         Route::get('communities/{community}', [CommunityController::class, 'show'])->whereNumber('community');
         Route::post('communities', [CommunityController::class, 'store'])->middleware('throttle:10,1');
+        Route::get('communities/joined', [CommunityController::class, 'joined']);
+
+        Route::prefix('communities/{community}')->where(['community' => '[0-9]+'])->scopeBindings()->group(function (): void {
+            Route::post('join', [CommunityMemberController::class, 'join'])->middleware('throttle:30,1');
+            Route::post('leave', [CommunityMemberController::class, 'leave']);
+
+            Route::get('members', [CommunityMemberController::class, 'index']);
+            Route::post('members/{member}/approve', [CommunityMemberController::class, 'approve'])->whereNumber('member');
+            Route::put('members/{member}/role', [CommunityMemberController::class, 'updateRole'])->whereNumber('member');
+            Route::delete('members/{member}', [CommunityMemberController::class, 'destroy'])->whereNumber('member');
+
+            Route::post('photos', [CommunityPhotoController::class, 'store'])->middleware('throttle:30,1');
+            Route::delete('photos/{asset}', [CommunityPhotoController::class, 'destroy'])->whereUuid('asset')->withoutScopedBindings();
+
+            Route::get('activities', [CommunityActivityController::class, 'index']);
+            Route::post('activities', [CommunityActivityController::class, 'store']);
+            Route::put('activities/{activity}', [CommunityActivityController::class, 'update'])->whereNumber('activity');
+            Route::delete('activities/{activity}', [CommunityActivityController::class, 'destroy'])->whereNumber('activity');
+        });
+
+        Route::get('members/{user}', [MemberProfileController::class, 'show'])->whereNumber('user');
 
         Route::apiResource('categories', CategoryController::class);
         Route::apiResource('articles', ArticleController::class);
