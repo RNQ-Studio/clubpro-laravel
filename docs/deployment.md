@@ -141,6 +141,14 @@ composer install --no-dev --optimize-autoloader --prefer-dist --no-interaction
 php artisan migrate --force
 ```
 
+### Step 4b: Download the IP Location Database (First-time setup only)
+```bash
+php artisan geoip:update
+```
+Feeds the approximate location shown in the app's Admin Panel. The file (~130 MB, DB-IP Lite,
+CC BY 4.0) lives in `storage/app/geoip/`, so member IPs never leave the server. The scheduler
+refreshes it monthly. Without it everything keeps working and locations stay empty.
+
 ### Step 5: Generate OAuth Keys (First-time setup only)
 ```bash
 php artisan passport:keys

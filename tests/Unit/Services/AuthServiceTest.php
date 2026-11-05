@@ -5,6 +5,7 @@ namespace Tests\Unit\Services;
 use App\Models\User;
 use App\Models\UserDevice;
 use App\Services\Auth\AuthService;
+use App\Services\UserActivityService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -27,7 +28,7 @@ class AuthServiceTest extends TestCase
     {
         parent::setUp();
 
-        $this->authService = new AuthService;
+        $this->authService = app(AuthService::class);
 
         // Set up a fresh Passport password client for each test
         $clientRepo = app(ClientRepository::class);
@@ -263,10 +264,7 @@ class AuthServiceTest extends TestCase
             'device_name' => 'Pixel 7 Old',
         ]);
 
-        // Invoke the private upsertDevice method using reflection
-        $method = new \ReflectionMethod(AuthService::class, 'upsertDevice');
-        $method->setAccessible(true);
-        $method->invoke($this->authService, $this->user, $deviceInfo);
+        app(UserActivityService::class)->recordLogin($this->user, $deviceInfo);
 
         // Verify that it successfully updated the existing record
         $this->assertDatabaseHas('user_devices', [

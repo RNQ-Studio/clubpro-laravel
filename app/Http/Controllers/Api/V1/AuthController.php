@@ -19,6 +19,7 @@ use App\Services\Auth\AuthService;
 use App\Services\Auth\Google\GoogleAuthService;
 use App\Services\FileUploadService;
 use App\Services\MemberProfileService;
+use App\Services\UserActivityService;
 use App\Support\ApiResponse;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\JsonResponse;
@@ -52,7 +53,7 @@ class AuthController extends Controller
         $tokens = $this->authService->login(
             $request->string('email')->toString(),
             $request->string('password')->toString(),
-            $request->only(['device_id', 'platform', 'os_version', 'app_version', 'device_name', 'push_token']),
+            $this->deviceInfo($request),
         );
 
         $tokens['email_verified'] = false;
@@ -68,7 +69,7 @@ class AuthController extends Controller
         $tokens = $this->authService->login(
             $request->string('email')->toString(),
             $request->string('password')->toString(),
-            $request->only(['device_id', 'platform', 'os_version', 'app_version', 'device_name', 'push_token']),
+            $this->deviceInfo($request),
         );
 
         $user = User::query()->where('email', $request->string('email')->toString())->first();
@@ -88,7 +89,7 @@ class AuthController extends Controller
     {
         $tokens = $googleAuth->login(
             $request->string('id_token')->toString(),
-            $request->only(['device_id', 'platform', 'os_version', 'app_version', 'device_name', 'push_token']),
+            $this->deviceInfo($request),
         );
 
         return ApiResponse::success([...$tokens, 'email_verified' => true], 'Login successful');
@@ -195,5 +196,16 @@ class AuthController extends Controller
         $this->authService->logoutAllDevices($user);
 
         return ApiResponse::success(null, 'Logged out from all devices');
+    }
+
+    /**
+     * @return array{device_id?: string, platform?: string, os_version?: string|null, app_version?: string|null, device_name?: string|null, push_token?: string|null, ip_address: string|null, user_agent: string|null}
+     */
+    private function deviceInfo(Request $request): array
+    {
+        return [
+            ...$request->only(['device_id', 'platform', 'os_version', 'app_version', 'device_name', 'push_token']),
+            ...UserActivityService::clientInfo($request),
+        ];
     }
 }

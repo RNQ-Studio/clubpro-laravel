@@ -3,11 +3,9 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\User;
-use App\Services\FileUploadService;
 use App\Services\MemberProfileService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Str;
 
 /**
  * @mixin User
@@ -19,23 +17,12 @@ class UserResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $avatarUrl = null;
-        if ($this->avatar !== null) {
-            if (Str::isUuid($this->avatar)) {
-                $avatarUrl = $this->avatarAsset?->getPublicUrl();
-            } else {
-                $avatarUrl = app(FileUploadService::class)->url($this->avatar);
-            }
-        }
-        // Belum unggah foto sendiri → pakai foto akun Google bila ada.
-        $avatarUrl ??= $this->google_avatar_url;
-
         return [
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
             'phone' => $this->phone,
-            'avatar_url' => $avatarUrl,
+            'avatar_url' => $this->avatarUrl(),
             'gender' => $this->gender?->value,
             'birth_place' => $this->birth_place,
             'birth_date' => $this->birth_date?->format('Y-m-d'),

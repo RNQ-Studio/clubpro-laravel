@@ -7,6 +7,7 @@ use App\Http\Resources\Api\V1\UserResource;
 use App\Models\User;
 use App\Services\Auth\AuthService;
 use App\Services\OtpService;
+use App\Services\UserActivityService;
 use App\Support\ApiResponse;
 use App\Support\Enums\OtpPurpose;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +20,7 @@ class OtpController extends Controller
     public function __construct(
         private readonly OtpService $otpService,
         private readonly AuthService $authService,
+        private readonly UserActivityService $activity,
     ) {}
 
     /**
@@ -76,6 +78,7 @@ class OtpController extends Controller
             }
 
             $tokens = $this->authService->issueTokenForUser($user);
+            $this->activity->recordLogin($user, UserActivityService::clientInfo($request));
 
             return ApiResponse::success($tokens, 'Login successful');
         }

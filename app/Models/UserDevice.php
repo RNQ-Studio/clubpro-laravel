@@ -19,6 +19,10 @@ use Illuminate\Support\Carbon;
  * @property string|null $app_version
  * @property string|null $device_name
  * @property string|null $push_token
+ * @property string|null $device_type
+ * @property string|null $ip_address
+ * @property string|null $user_agent
+ * @property string|null $location
  * @property Carbon|null $last_active_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -35,6 +39,10 @@ class UserDevice extends Model
         'app_version',
         'device_name',
         'push_token',
+        'device_type',
+        'ip_address',
+        'user_agent',
+        'location',
         'last_active_at',
     ];
 

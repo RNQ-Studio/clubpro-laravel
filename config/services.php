@@ -34,6 +34,11 @@ return [
         'client_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('GOOGLE_CLIENT_IDS', ''))))),
     ],
 
+    // Perkiraan lokasi dari IP: database lokal, diunduh `php artisan geoip:update`.
+    'geoip' => [
+        'database' => env('GEOIP_DATABASE', storage_path('app/geoip/dbip-city-lite.mmdb')),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

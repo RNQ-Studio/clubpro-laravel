@@ -4,6 +4,7 @@ namespace App\Services\Auth\Google;
 
 use App\Models\User;
 use App\Services\Auth\AuthService;
+use App\Services\UserActivityService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -19,10 +20,11 @@ class GoogleAuthService
     public function __construct(
         private readonly GoogleIdTokenVerifier $verifier,
         private readonly AuthService $authService,
+        private readonly UserActivityService $activity,
     ) {}
 
     /**
-     * @param  array{device_id?: string, platform?: string, os_version?: string|null, app_version?: string|null, device_name?: string|null, push_token?: string|null}  $deviceInfo
+     * @param  array{device_id?: string, platform?: string, os_version?: string|null, app_version?: string|null, device_name?: string|null, push_token?: string|null, ip_address?: string|null, user_agent?: string|null}  $deviceInfo
      * @return array{access_token: string, refresh_token: string, token_type: string, expires_in: int, is_new_user: bool}
      *
      * @throws AuthenticationException|AuthorizationException
@@ -38,7 +40,7 @@ class GoogleAuthService
         }
 
         $tokens = $this->authService->issueTokenForUser($user);
-        $this->authService->recordDevice($user, $deviceInfo);
+        $this->activity->recordLogin($user, $deviceInfo);
 
         return [...$tokens, 'is_new_user' => $isNew];
     }

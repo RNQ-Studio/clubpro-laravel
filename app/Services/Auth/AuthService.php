@@ -4,9 +4,9 @@ namespace App\Services\Auth;
 
 use App\Models\User;
 use App\Models\UserDevice;
+use App\Services\UserActivityService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -15,8 +15,10 @@ use Laravel\Passport\RefreshToken;
 
 class AuthService
 {
+    public function __construct(private readonly UserActivityService $activity) {}
+
     /**
-     * @param  array{device_id?: string, platform?: string, os_version?: string|null, app_version?: string|null, device_name?: string|null, push_token?: string|null}  $deviceInfo
+     * @param  array{device_id?: string, platform?: string, os_version?: string|null, app_version?: string|null, device_name?: string|null, push_token?: string|null, ip_address?: string|null, user_agent?: string|null}  $deviceInfo
      * @return array{access_token: string, refresh_token: string, token_type: string, expires_in: int}
      *
      * @throws AuthenticationException|AuthorizationException
@@ -37,22 +39,10 @@ class AuthService
 
         // Reload user after token issuance to ensure it exists
         if ($user !== null) {
-            $this->recordDevice($user, $deviceInfo);
+            $this->activity->recordLogin($user, $deviceInfo);
         }
 
         return $tokens;
-    }
-
-    /**
-     * Catat perangkat login bila app mengirim device_id + platform.
-     *
-     * @param  array{device_id?: string, platform?: string, os_version?: string|null, app_version?: string|null, device_name?: string|null, push_token?: string|null}  $deviceInfo
-     */
-    public function recordDevice(User $user, array $deviceInfo): void
-    {
-        if (isset($deviceInfo['device_id'], $deviceInfo['platform'])) {
-            $this->upsertDevice($user, $deviceInfo);
-        }
     }
 
     /**
@@ -136,44 +126,6 @@ class AuthService
             UserDevice::query()
                 ->where('user_id', $user->getKey())
                 ->update(['push_token' => null]);
-        });
-    }
-
-    /**
-     * @param  array{device_id: string, platform: string, os_version?: string|null, app_version?: string|null, device_name?: string|null, push_token?: string|null}  $deviceInfo
-     */
-    private function upsertDevice(User $user, array $deviceInfo): void
-    {
-        DB::transaction(function () use ($user, $deviceInfo) {
-            try {
-                UserDevice::query()->updateOrCreate(
-                    [
-                        'user_id' => $user->getKey(),
-                        'device_id' => $deviceInfo['device_id'],
-                    ],
-                    [
-                        'platform' => $deviceInfo['platform'],
-                        'os_version' => $deviceInfo['os_version'] ?? null,
-                        'app_version' => $deviceInfo['app_version'] ?? null,
-                        'device_name' => $deviceInfo['device_name'] ?? null,
-                        'push_token' => $deviceInfo['push_token'] ?? null,
-                        'last_active_at' => now(),
-                    ]
-                );
-            } catch (UniqueConstraintViolationException $e) {
-                UserDevice::query()
-                    ->where('user_id', $user->getKey())
-                    ->where('device_id', $deviceInfo['device_id'])
-                    ->update([
-                        'platform' => $deviceInfo['platform'],
-                        'os_version' => $deviceInfo['os_version'] ?? null,
-                        'app_version' => $deviceInfo['app_version'] ?? null,
-                        'device_name' => $deviceInfo['device_name'] ?? null,
-                        'push_token' => $deviceInfo['push_token'] ?? null,
-                        'last_active_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-            }
         });
     }
 

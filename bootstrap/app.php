@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\CheckMaintenance;
 use App\Http\Middleware\ForceJsonResponse;
+use App\Http\Middleware\TrackUserActivity;
 use App\Support\ApiResponse;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -28,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         $middleware->alias([
             'check.maintenance' => CheckMaintenance::class,
+            'track.activity' => TrackUserActivity::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

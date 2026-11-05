@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\UserExcelController;
+use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\V1\AppController;
 use App\Http\Controllers\Api\V1\AppReleaseController;
 use App\Http\Controllers\Api\V1\ArticleController;
@@ -71,7 +72,7 @@ Route::prefix('v1')->group(function (): void {
             ->name('verification.verify')
             ->middleware(['check.maintenance']);
 
-        Route::middleware(['auth:api', 'check.maintenance'])->group(function (): void {
+        Route::middleware(['auth:api', 'check.maintenance', 'track.activity'])->group(function (): void {
             Route::post('email/send-verification', [EmailVerificationController::class, 'sendVerification'])
                 ->middleware('throttle:6,1');
             Route::post('email/verify', [EmailVerificationController::class, 'verify']);
@@ -92,7 +93,7 @@ Route::prefix('v1')->group(function (): void {
     // Banner slider Beranda (publik, dikelola admin di back-office).
     Route::get('banners', [BannerController::class, 'index'])->middleware('throttle:60,1');
 
-    Route::middleware(['auth:api', 'check.maintenance'])->group(function (): void {
+    Route::middleware(['auth:api', 'check.maintenance', 'track.activity'])->group(function (): void {
         Route::post('assets/upload', [AssetController::class, 'upload'])->middleware('throttle:30,1');
 
         Route::apiResource('categories', CategoryController::class);
@@ -104,6 +105,14 @@ Route::prefix('v1')->group(function (): void {
             Route::get('unread-count', [NotificationController::class, 'unreadCount']);
             Route::post('read-all', [NotificationController::class, 'markAllRead']);
             Route::post('{notification}/read', [NotificationController::class, 'markRead']);
+        });
+
+        // Admin Panel app web: khusus super admin.
+        Route::prefix('admin')->middleware(['can:admin-panel', 'throttle:120,1'])->group(function (): void {
+            Route::get('users', [AdminUserController::class, 'index']);
+            Route::get('users/{user}', [AdminUserController::class, 'show'])->whereNumber('user');
+            Route::put('users/{user}/super-admin', [AdminUserController::class, 'updateSuperAdmin'])->whereNumber('user');
+            Route::put('users/{user}/status', [AdminUserController::class, 'updateStatus'])->whereNumber('user');
         });
     });
 });

@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Policies\RolePolicy;
 use App\Services\Auth\Google\GoogleAuthIdTokenVerifier;
 use App\Services\Auth\Google\GoogleIdTokenVerifier;
+use App\Services\Geo\IpLocationService;
 use App\Services\Push\FcmDriver;
 use App\Services\Push\FcmDriverInterface;
 use App\Services\Push\LogFcmDriver;
@@ -33,6 +34,10 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(GoogleIdTokenVerifier::class, fn (): GoogleIdTokenVerifier => new GoogleAuthIdTokenVerifier(
             (array) config('services.google.client_ids'),
+        ));
+
+        $this->app->singleton(IpLocationService::class, fn (): IpLocationService => new IpLocationService(
+            (string) config('services.geoip.database'),
         ));
 
         // Use the real FCM driver when Firebase credentials are configured; fall back to log driver.
@@ -63,6 +68,9 @@ class AppServiceProvider extends ServiceProvider
 
         // super-admin bypasses every authorization check (API + back-office).
         Gate::before(fn (?User $user, string $ability): ?bool => ($user && $user->hasRole('super-admin')) ? true : null);
+
+        // Admin Panel di app web: khusus super admin (lihat Gate::before di atas).
+        Gate::define('admin-panel', fn (User $user): bool => $user->hasRole('super-admin'));
 
         // Inject high-quality touch icons, favicons and manifest into Filament head
         if (class_exists(FilamentView::class)) {

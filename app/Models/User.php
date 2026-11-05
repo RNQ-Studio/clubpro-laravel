@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Notifications\VerifyEmailNotification;
+use App\Services\FileUploadService;
 use App\Support\Enums\BloodType;
 use App\Support\Enums\Gender;
 use Database\Factories\UserFactory;
@@ -14,10 +15,12 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
 use Spatie\Activitylog\LogOptions;
@@ -41,6 +44,8 @@ use Spatie\Permission\Traits\HasRoles;
  * @property bool $is_active
  * @property Carbon|null $email_verified_at
  * @property Carbon|null $phone_verified_at
+ * @property Carbon|null $last_login_at
+ * @property Carbon|null $last_seen_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -88,6 +93,12 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, OAu
         return $this->hasMany(UserDevice::class);
     }
 
+    /** @return HasOne<UserDevice, $this> */
+    public function latestDevice(): HasOne
+    {
+        return $this->hasOne(UserDevice::class)->latestOfMany('last_active_at');
+    }
+
     /** @return HasMany<Notification, $this> */
     public function notifications(): HasMany
     {
@@ -100,6 +111,19 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, OAu
         return $this->belongsTo(Asset::class, 'avatar');
     }
 
+    /** Foto unggahan; belum unggah → foto akun Google bila ada. */
+    public function avatarUrl(): ?string
+    {
+        $url = null;
+        if ($this->avatar !== null) {
+            $url = Str::isUuid($this->avatar)
+                ? $this->avatarAsset?->getPublicUrl()
+                : app(FileUploadService::class)->url($this->avatar);
+        }
+
+        return $url ?? $this->google_avatar_url;
+    }
+
     /**
      * Get the attributes that should be cast.
      *
@@ -110,6 +134,8 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, OAu
         return [
             'email_verified_at' => 'datetime',
             'phone_verified_at' => 'datetime',
+            'last_login_at' => 'datetime',
+            'last_seen_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
             'gender' => Gender::class,
