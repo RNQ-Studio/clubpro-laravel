@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\UserExcelController;
+use App\Http\Controllers\Api\V1\Admin\CommunityController as AdminCommunityController;
+use App\Http\Controllers\Api\V1\Admin\SummaryController as AdminSummaryController;
 use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\V1\AppController;
 use App\Http\Controllers\Api\V1\AppReleaseController;
@@ -126,10 +128,16 @@ Route::prefix('v1')->group(function (): void {
 
         // Admin Panel app web: khusus super admin.
         Route::prefix('admin')->middleware(['can:admin-panel', 'throttle:120,1'])->group(function (): void {
+            Route::get('summary', AdminSummaryController::class);
+
             Route::get('users', [AdminUserController::class, 'index']);
             Route::get('users/{user}', [AdminUserController::class, 'show'])->whereNumber('user');
             Route::put('users/{user}/super-admin', [AdminUserController::class, 'updateSuperAdmin'])->whereNumber('user');
             Route::put('users/{user}/status', [AdminUserController::class, 'updateStatus'])->whereNumber('user');
+
+            Route::get('communities', [AdminCommunityController::class, 'index']);
+            Route::get('communities/{community}', [AdminCommunityController::class, 'show'])->whereNumber('community');
+            Route::put('communities/{community}/review', [AdminCommunityController::class, 'review'])->whereNumber('community');
         });
     });
 });

@@ -25,6 +25,8 @@ class CommunityDetailResource extends CommunityResource
             'contact_name' => $this->contact_name,
             'contact_phone' => $this->contact_phone,
             'contact_email' => $this->contact_email,
+            // Hanya terisi pada penolakan, yang hanya bisa dibuka pengaju & super admin.
+            'review_note' => $this->review_note,
             'photo_urls' => $this->photos->map(fn (Asset $photo): ?string => $photo->getPublicUrl())->filter()->values(),
         ];
     }

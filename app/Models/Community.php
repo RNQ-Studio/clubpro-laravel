@@ -35,10 +35,14 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property string $contact_phone
  * @property string|null $contact_email
  * @property string $logo_asset_id
+ * @property int|null $reviewed_by
+ * @property Carbon|null $reviewed_at
+ * @property string|null $review_note
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Asset|null $logo
  * @property-read User|null $owner
+ * @property-read User|null $reviewer
  * @property-read Collection<int, Asset> $photos
  */
 class Community extends Model
@@ -69,6 +73,7 @@ class Community extends Model
         return [
             'status' => CommunityStatus::class,
             'type' => CommunityType::class,
+            'reviewed_at' => 'datetime',
         ];
     }
 
@@ -84,6 +89,12 @@ class Community extends Model
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function reviewer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reviewed_by');
     }
 
     /** @return BelongsTo<Asset, $this> */
