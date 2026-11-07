@@ -31,7 +31,7 @@ class CommunityService
     ) {}
 
     /**
-     * @param  array{search?: string|null, type?: string|null, province_code?: string|null}  $filters
+     * @param  array{search?: string|null, type?: string|null, province_code?: string|null, sort?: string|null}  $filters
      * @return LengthAwarePaginator<int, Community>
      */
     public function paginateApproved(array $filters, int $perPage): LengthAwarePaginator
@@ -51,6 +51,7 @@ class CommunityService
             })
             ->when($filters['type'] ?? null, fn (Builder $query, string $type): Builder => $query->where('type', $type))
             ->when($filters['province_code'] ?? null, fn (Builder $query, string $code): Builder => $query->where('province_code', $code))
+            ->when(($filters['sort'] ?? null) === 'popular', fn (Builder $query): Builder => $query->orderByDesc('members_count'))
             ->orderBy('name')
             ->orderBy('id')
             ->paginate($perPage);
@@ -116,18 +117,22 @@ class CommunityService
 
     /**
      * Komunitas yang pengguna ikuti sebagai creator, admin, atau anggota. Yang belum atau
-     * tidak terverifikasi hanya tampil untuk creatornya.
+     * tidak terverifikasi hanya tampil untuk creatornya. [$includePending] ikut memuat
+     * permintaan bergabung yang belum diterima (`my_status` = pending).
      *
      * @return Collection<int, Community>
      */
-    public function joined(User $user): Collection
+    public function joined(User $user, bool $includePending = false): Collection
     {
         $id = $user->getKey();
+        $statuses = $includePending
+            ? [CommunityMemberStatus::Active, CommunityMemberStatus::Pending]
+            : [CommunityMemberStatus::Active];
 
         return Community::query()
             ->whereHas('members', fn (Builder $member): Builder => $member
                 ->where('user_id', $id)
-                ->where('status', CommunityMemberStatus::Active))
+                ->whereIn('status', $statuses))
             ->where(fn (Builder $query): Builder => $query
                 ->where('status', CommunityStatus::Approved)
                 ->orWhere('communities.user_id', $id))

@@ -50,14 +50,17 @@ class CommunityController extends Controller
     }
 
     /**
-     * Komunitas yang diikuti pengguna yang login, untuk Beranda.
+     * Komunitas yang diikuti pengguna yang login, untuk Beranda. `include_pending=1` ikut
+     * memuat permintaan bergabung yang masih menunggu persetujuan.
      */
     public function joined(Request $request): JsonResponse
     {
         /** @var User $user */
         $user = $request->user();
 
-        return ApiResponse::success(CommunityResource::collection($this->communities->joined($user)));
+        return ApiResponse::success(CommunityResource::collection(
+            $this->communities->joined($user, $request->boolean('include_pending')),
+        ));
     }
 
     public function show(Request $request, Community $community): JsonResponse

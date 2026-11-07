@@ -32,6 +32,7 @@ class CommunityResource extends JsonResource
             'members_count' => $this->whenCounted('members'),
             // `members` hanya dimuat untuk keanggotaan pengguna yang login.
             'my_role' => $this->when($this->relationLoaded('members'), fn (): ?string => $this->members->first()?->role->value),
+            'my_status' => $this->when($this->relationLoaded('members'), fn (): ?string => $this->members->first()?->status->value),
         ];
     }
 }

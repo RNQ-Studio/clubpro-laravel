@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Models\Asset;
 use App\Models\Community;
+use App\Models\CommunityMember;
 use App\Models\User;
 use App\Support\Enums\AssetStatus;
 use App\Support\Enums\CommunityStatus;
@@ -131,6 +132,46 @@ class CommunityTest extends TestCase
             ->assertJsonPath('data.0.name', 'Anggrek')
             ->assertJsonPath('data.1.name', 'Bakung')
             ->assertJsonPath('meta.pagination.last_page', 2);
+    }
+
+    public function test_urut_terpopuler_menurut_anggota_aktif_terbanyak(): void
+    {
+        $sepi = Community::factory()->approved()->create(['name' => 'Anggrek']);
+        $ramai = Community::factory()->approved()->create(['name' => 'Cendana']);
+        $sedang = Community::factory()->approved()->create(['name' => 'Bakung']);
+        $seri = Community::factory()->approved()->create(['name' => 'Akasia']);
+        CommunityMember::factory()->count(3)->for($ramai)->create();
+        CommunityMember::factory()->for($sedang)->create();
+        CommunityMember::factory()->for($seri)->create();
+        // Permintaan yang belum diterima tidak dihitung.
+        CommunityMember::factory()->count(5)->pending()->for($sepi)->create();
+        Passport::actingAs($this->user);
+
+        $rows = $this->getJson('/api/v1/communities?sort=popular')->assertOk()->json('data');
+
+        $this->assertSame(['Cendana', 'Akasia', 'Bakung', 'Anggrek'], array_column($rows, 'name'));
+        $this->assertSame(
+            [$ramai->members()->where('status', 'active')->count(), $seri->members()->where('status', 'active')->count()],
+            [$rows[0]['members_count'], $rows[1]['members_count']],
+        );
+        $this->assertGreaterThan($rows[3]['members_count'], $rows[2]['members_count']);
+
+        $this->getJson('/api/v1/communities?sort=name')->assertOk()->assertJsonPath('data.0.name', 'Akasia');
+        $this->getJson('/api/v1/communities?sort=acak')->assertUnprocessable();
+    }
+
+    public function test_urut_terpopuler_tetap_hanya_yang_disetujui_dan_bisa_dicari(): void
+    {
+        $menunggu = Community::factory()->create(['name' => 'Pemanah Menunggu']);
+        CommunityMember::factory()->count(4)->for($menunggu)->create();
+        Community::factory()->approved()->create(['name' => 'Pemanah Bandung']);
+        Community::factory()->approved()->create(['name' => 'Sepak Bola Solo']);
+        Passport::actingAs($this->user);
+
+        $this->getJson('/api/v1/communities?sort=popular&search=pemanah&per_page=5')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'Pemanah Bandung');
     }
 
     public function test_milik_saya_memuat_semua_status_dan_hanya_milik_sendiri(): void

@@ -24,7 +24,6 @@ class CommunityDetailResource extends CommunityResource
         return [
             ...parent::toArray($request),
             'can_manage' => $canManage,
-            'my_status' => $this->when($this->relationLoaded('members'), fn (): ?string => $this->members->first()?->status->value),
             'upcoming_activities_count' => $this->whenCounted('upcoming_activities'),
             'pending_members_count' => $this->when($canManage, fn () => $this->pending_members_count),
             'photos' => $this->photos->map(fn (Asset $photo): array => ['id' => $photo->id, 'url' => $photo->getPublicUrl()])->values(),

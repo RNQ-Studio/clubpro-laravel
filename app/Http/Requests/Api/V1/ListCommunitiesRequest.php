@@ -22,6 +22,8 @@ class ListCommunitiesRequest extends FormRequest
             'search' => ['sometimes', 'nullable', 'string', 'max:100'],
             'type' => ['sometimes', 'nullable', Rule::enum(CommunityType::class)],
             'province_code' => ['sometimes', 'nullable', 'string', 'max:2'],
+            // `popular`: anggota aktif terbanyak dulu, untuk rekomendasi.
+            'sort' => ['sometimes', 'nullable', Rule::in(['name', 'popular'])],
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:50'],
         ];

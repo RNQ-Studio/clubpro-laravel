@@ -405,6 +405,38 @@ class CommunityMemberTest extends TestCase
             ->assertJsonPath('data.0.members_count', 2);
     }
 
+    public function test_komunitas_saya_bisa_ikut_memuat_permintaan_yang_menunggu(): void
+    {
+        $user = User::factory()->create();
+        CommunityMember::factory()->for($this->community)->for($user)->pending()->create();
+        $aktif = Community::factory()->approved()->create(['name' => 'Aktif']);
+        CommunityMember::factory()->for($aktif)->for($user)->create();
+        Passport::actingAs($user);
+
+        $this->getJson('/api/v1/communities/joined')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.name', 'Aktif')
+            ->assertJsonPath('data.0.my_status', 'active');
+
+        $rows = collect($this->getJson('/api/v1/communities/joined?include_pending=1')->assertOk()->json('data'))
+            ->keyBy('id');
+        $this->assertCount(2, $rows);
+        $this->assertSame('active', $rows[$aktif->id]['my_status']);
+        $this->assertSame('pending', $rows[$this->community->id]['my_status']);
+        $this->assertSame('member', $rows[$this->community->id]['my_role']);
+    }
+
+    public function test_permintaan_ke_komunitas_yang_dicabut_verifikasinya_tidak_ikut(): void
+    {
+        $user = User::factory()->create();
+        CommunityMember::factory()->for($this->community)->for($user)->pending()->create();
+        $this->community->forceFill(['status' => 'rejected'])->save();
+        Passport::actingAs($user);
+
+        $this->getJson('/api/v1/communities/joined?include_pending=1')->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_creator_melihat_pengajuannya_yang_belum_terverifikasi(): void
     {
         Community::factory()->for($this->creator, 'owner')->create(['name' => 'Masih Menunggu']);
