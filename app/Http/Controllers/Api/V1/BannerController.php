@@ -17,7 +17,7 @@ class BannerController extends Controller
      */
     public function index(): JsonResponse
     {
-        $banners = Banner::query()->visible()->with('imageAsset')->limit(10)->get();
+        $banners = Banner::query()->visible()->with('imageAsset')->limit(Banner::MAX_VISIBLE)->get();
 
         return ApiResponse::success(BannerResource::collection($banners));
     }

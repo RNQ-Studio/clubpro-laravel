@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Banners\Schemas;
 
 use App\Filament\Forms\AssetImageUpload;
+use App\Rules\BannerLink;
 use Filament\Forms\Components\DateTimePicker;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -18,20 +19,21 @@ class BannerForm
                 ->columnSpanFull()
                 ->schema([
                     TextInput::make('title')
-                        ->label('Judul')
-                        ->required()
-                        ->maxLength(120),
+                        ->label('Judul (opsional)')
+                        ->maxLength(120)
+                        ->dehydrateStateUsing(fn (?string $state): string => $state ?? '')
+                        ->helperText('Kosongkan bila fotonya sudah bertulisan.'),
                     TextInput::make('subtitle')
                         ->label('Keterangan')
                         ->maxLength(255),
                     AssetImageUpload::make('image', 'banner')
                         ->label('Gambar')
-                        ->helperText('Rasio 16:9 disarankan (mis. 1280×720). Tanpa gambar, app menampilkan judul di atas latar warna.'),
+                        ->helperText('Rasio 2:1 disarankan (mis. 1600×800). Tanpa gambar, app menampilkan judul di atas latar warna.'),
                     TextInput::make('link_url')
                         ->label('Tautan (opsional)')
-                        ->url()
+                        ->rule(new BannerLink)
                         ->maxLength(2048)
-                        ->helperText('Dibuka saat banner diketuk.'),
+                        ->helperText('Dibuka saat banner diketuk: tautan https, atau halaman app seperti /communities.'),
                 ]),
             Section::make('Penayangan')
                 ->columns(2)

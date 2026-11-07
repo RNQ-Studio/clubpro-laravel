@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\UserExcelController;
+use App\Http\Controllers\Api\V1\Admin\BannerController as AdminBannerController;
 use App\Http\Controllers\Api\V1\Admin\CommunityController as AdminCommunityController;
 use App\Http\Controllers\Api\V1\Admin\SummaryController as AdminSummaryController;
 use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
@@ -98,7 +99,7 @@ Route::prefix('v1')->group(function (): void {
 
     Route::apiResource('quotes', QuoteController::class);
 
-    // Banner slider Beranda (publik, dikelola admin di back-office).
+    // Banner slider Beranda (publik, dikelola di Admin Panel dan back-office).
     Route::get('banners', [BannerController::class, 'index'])->middleware('throttle:60,1');
 
     // Pilihan provinsi & kabupaten/kota.
@@ -163,6 +164,12 @@ Route::prefix('v1')->group(function (): void {
             Route::get('communities', [AdminCommunityController::class, 'index']);
             Route::get('communities/{community}', [AdminCommunityController::class, 'show'])->whereNumber('community');
             Route::put('communities/{community}/review', [AdminCommunityController::class, 'review'])->whereNumber('community');
+
+            Route::get('banners', [AdminBannerController::class, 'index']);
+            Route::post('banners', [AdminBannerController::class, 'store']);
+            Route::put('banners/order', [AdminBannerController::class, 'reorder']);
+            Route::put('banners/{banner}', [AdminBannerController::class, 'update'])->whereNumber('banner');
+            Route::delete('banners/{banner}', [AdminBannerController::class, 'destroy'])->whereNumber('banner');
         });
     });
 });

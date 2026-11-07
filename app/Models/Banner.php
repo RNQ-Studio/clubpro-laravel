@@ -36,6 +36,12 @@ class Banner extends Model
     /** @use HasFactory<BannerFactory> */
     use HasFactory, LogsActivity;
 
+    /** Banner terbanyak yang tampil di slider Beranda. */
+    public const MAX_VISIBLE = 10;
+
+    /** Halaman app yang boleh menjadi tujuan banner. */
+    public const APP_LINK_PATTERN = '#^/(profile|communities(/new|/[1-9][0-9]*)?)$#';
+
     protected $fillable = [
         'title',
         'subtitle',
@@ -98,6 +104,23 @@ class Banner extends Model
             ->where(fn (Builder $q) => $q->whereNull('ends_at')->orWhere('ends_at', '>=', $now))
             ->orderBy('sort_order')
             ->orderBy('id');
+    }
+
+    /** @return 'live'|'inactive'|'scheduled'|'ended' Sama dengan syarat scope `visible`. */
+    public function displayStatus(): string
+    {
+        return match (true) {
+            ! $this->is_active => 'inactive',
+            $this->starts_at?->isFuture() ?? false => 'scheduled',
+            $this->ends_at?->isPast() ?? false => 'ended',
+            default => 'live',
+        };
+    }
+
+    /** Id komunitas bila tautan menuju halaman klub tertentu. */
+    public static function communityIdFromLink(?string $link): ?int
+    {
+        return preg_match('#^/communities/([1-9][0-9]*)$#', (string) $link, $match) === 1 ? (int) $match[1] : null;
     }
 
     public function getImageUrlAttribute(): ?string

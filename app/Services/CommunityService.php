@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Asset;
 use App\Models\Community;
 use App\Models\User;
-use App\Support\Enums\AssetStatus;
 use App\Support\Enums\CommunityMemberRole;
 use App\Support\Enums\CommunityMemberStatus;
 use App\Support\Enums\CommunityStatus;
@@ -25,14 +24,10 @@ class CommunityService
     /** Batas galeri sesudah komunitas berjalan. */
     public const MAX_GALLERY_PHOTOS = 60;
 
-    /** Batas per foto; app sudah mengecilkan foto sebelum mengunggah. */
-    private const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-
-    private const IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
-
     public function __construct(
         private readonly IndonesiaRegionService $regions,
         private readonly AssetDeletionService $assets,
+        private readonly ImageAssetGuard $images,
     ) {}
 
     /**
@@ -74,8 +69,8 @@ class CommunityService
         $photoIds = $data['photo_asset_ids'];
 
         $this->assertNotDuplicate($owner, $data['name']);
-        $this->assertUsableImages($owner, [$logoId], 'logo_asset_id');
-        $this->assertUsableImages($owner, $photoIds, 'photo_asset_ids');
+        $this->images->assertUsable($owner, [$logoId], 'logo_asset_id');
+        $this->images->assertUsable($owner, $photoIds, 'photo_asset_ids');
 
         if (in_array($logoId, $photoIds, true)) {
             $this->reject('photo_asset_ids', 'Foto profil tidak boleh dipakai lagi sebagai lampiran.');
@@ -163,7 +158,7 @@ class CommunityService
             $this->reject('asset_id', 'Galeri sudah penuh ('.self::MAX_GALLERY_PHOTOS.' foto). Hapus foto lama terlebih dahulu.');
         }
 
-        $this->assertUsableImages($user, [$assetId], 'asset_id');
+        $this->images->assertUsable($user, [$assetId], 'asset_id');
 
         $order = (int) DB::table('community_photos')->where('community_id', $community->getKey())->max('sort_order');
 
@@ -195,33 +190,6 @@ class CommunityService
 
         if ($exists) {
             $this->reject('name', 'Komunitas ini sudah Anda ajukan dan sedang menunggu verifikasi.');
-        }
-    }
-
-    /**
-     * Foto harus unggahan pengaju sendiri: tanpa ini, id aset orang lain bisa ditautkan.
-     *
-     * @param  list<string>  $ids
-     */
-    private function assertUsableImages(User $owner, array $ids, string $field): void
-    {
-        $usable = Asset::query()
-            ->whereKey($ids)
-            ->where('user_id', $owner->getKey())
-            ->where('status', AssetStatus::Active)
-            ->whereIn('mime_type', self::IMAGE_MIMES)
-            ->where('size', '<=', self::MAX_IMAGE_BYTES)
-            ->count();
-
-        if ($usable !== count($ids)) {
-            $this->reject($field, 'Foto tidak valid. Unggah ulang foto JPG, PNG, atau WebP maksimal 5 MB.');
-        }
-
-        $taken = Community::query()->whereIn('logo_asset_id', $ids)->exists()
-            || DB::table('community_photos')->whereIn('asset_id', $ids)->exists();
-
-        if ($taken) {
-            $this->reject($field, 'Foto ini sudah dipakai komunitas lain. Unggah ulang fotonya.');
         }
     }
 
