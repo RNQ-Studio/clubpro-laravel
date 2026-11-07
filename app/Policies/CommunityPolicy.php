@@ -24,6 +24,12 @@ class CommunityPolicy
         return $community->isManagedBy($user);
     }
 
+    /** Iuran: melihat dan membayar iuran sendiri, hanya anggota aktif. */
+    public function dues(User $user, Community $community): bool
+    {
+        return $community->membershipOf($user)?->status === CommunityMemberStatus::Active;
+    }
+
     /** Daftar anggota hanya untuk sesama anggota. */
     public function viewMembers(User $user, Community $community): bool
     {

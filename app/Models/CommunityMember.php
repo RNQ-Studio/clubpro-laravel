@@ -18,6 +18,7 @@ use Illuminate\Support\Carbon;
  * @property CommunityMemberRole $role
  * @property CommunityMemberStatus $status
  * @property Carbon|null $joined_at
+ * @property Carbon|null $entry_fee_paid_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Community $community
@@ -36,6 +37,7 @@ class CommunityMember extends Model
             'role' => CommunityMemberRole::class,
             'status' => CommunityMemberStatus::class,
             'joined_at' => 'datetime',
+            'entry_fee_paid_at' => 'datetime',
         ];
     }
 

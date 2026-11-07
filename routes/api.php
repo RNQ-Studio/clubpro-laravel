@@ -14,6 +14,7 @@ use App\Http\Controllers\Api\V1\BannerController;
 use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\CommunityActivityController;
 use App\Http\Controllers\Api\V1\CommunityController;
+use App\Http\Controllers\Api\V1\CommunityDuesController;
 use App\Http\Controllers\Api\V1\CommunityMemberController;
 use App\Http\Controllers\Api\V1\CommunityPhotoController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
@@ -137,6 +138,22 @@ Route::prefix('v1')->group(function (): void {
             Route::post('activities', [CommunityActivityController::class, 'store']);
             Route::put('activities/{activity}', [CommunityActivityController::class, 'update'])->whereNumber('activity');
             Route::delete('activities/{activity}', [CommunityActivityController::class, 'destroy'])->whereNumber('activity');
+
+            Route::prefix('dues')->group(function (): void {
+                Route::get('/', [CommunityDuesController::class, 'show']);
+                Route::put('settings', [CommunityDuesController::class, 'updateSettings']);
+                Route::post('payments', [CommunityDuesController::class, 'storePayment'])->middleware('throttle:20,1');
+                Route::get('payments', [CommunityDuesController::class, 'payments']);
+                Route::post('payments/{duesPayment}/approve', [CommunityDuesController::class, 'approve'])->whereNumber('duesPayment');
+                Route::post('payments/{duesPayment}/reject', [CommunityDuesController::class, 'reject'])->whereNumber('duesPayment');
+                Route::get('members', [CommunityDuesController::class, 'members']);
+                Route::get('members/{user}', [CommunityDuesController::class, 'member'])->whereNumber('user')->withoutScopedBindings();
+                Route::put('members/{user}/months/{month}', [CommunityDuesController::class, 'setMonth'])
+                    ->whereNumber('user')
+                    ->where('month', '[0-9]{4}-(0[1-9]|1[0-2])')
+                    ->withoutScopedBindings();
+                Route::put('members/{user}/entry-fee', [CommunityDuesController::class, 'setEntryFee'])->whereNumber('user')->withoutScopedBindings();
+            });
         });
 
         Route::get('members/{user}', [MemberProfileController::class, 'show'])->whereNumber('user');

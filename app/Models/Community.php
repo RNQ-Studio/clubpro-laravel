@@ -37,6 +37,12 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property string $contact_phone
  * @property string|null $contact_email
  * @property string $logo_asset_id
+ * @property int|null $dues_amount
+ * @property int $entry_fee
+ * @property Carbon|null $dues_start_date
+ * @property string|null $dues_bank_name
+ * @property string|null $dues_account_number
+ * @property string|null $dues_account_name
  * @property int|null $reviewed_by
  * @property Carbon|null $reviewed_at
  * @property string|null $review_note
@@ -50,6 +56,7 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property-read int|null $members_count
  * @property-read int|null $pending_members_count
  * @property-read int|null $upcoming_activities_count
+ * @property-read int|null $pending_dues_payments_count
  */
 class Community extends Model
 {
@@ -80,13 +87,16 @@ class Community extends Model
             'status' => CommunityStatus::class,
             'type' => CommunityType::class,
             'reviewed_at' => 'datetime',
+            'dues_amount' => 'integer',
+            'entry_fee' => 'integer',
+            'dues_start_date' => 'date',
         ];
     }
 
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['name', 'status'])
+            ->logOnly(['name', 'status', 'dues_amount', 'entry_fee', 'dues_start_date', 'dues_bank_name', 'dues_account_number', 'dues_account_name'])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs();
     }
@@ -127,6 +137,18 @@ class Community extends Model
     public function activities(): HasMany
     {
         return $this->hasMany(CommunityActivity::class);
+    }
+
+    /** @return HasMany<DuesPayment, $this> */
+    public function duesPayments(): HasMany
+    {
+        return $this->hasMany(DuesPayment::class);
+    }
+
+    /** @return HasMany<DuesMonth, $this> */
+    public function duesMonths(): HasMany
+    {
+        return $this->hasMany(DuesMonth::class);
     }
 
     public function membershipOf(User $user): ?CommunityMember

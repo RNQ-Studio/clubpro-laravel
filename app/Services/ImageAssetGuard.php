@@ -5,13 +5,14 @@ namespace App\Services;
 use App\Models\Asset;
 use App\Models\Banner;
 use App\Models\Community;
+use App\Models\DuesPayment;
 use App\Models\User;
 use App\Support\Enums\AssetStatus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Syarat foto yang ditautkan ke komunitas atau banner. Satu foto hanya untuk satu pemakai:
+ * Syarat foto yang ditautkan ke komunitas, banner, atau bukti transfer iuran. Satu foto hanya untuk satu pemakai:
  * menghapus pemakainya ikut menghapus berkasnya.
  */
 class ImageAssetGuard
@@ -44,7 +45,8 @@ class ImageAssetGuard
 
         $taken = Community::query()->whereIn('logo_asset_id', $ids)->exists()
             || DB::table('community_photos')->whereIn('asset_id', $ids)->exists()
-            || Banner::query()->whereIn('image', $ids)->exists();
+            || Banner::query()->whereIn('image', $ids)->exists()
+            || DuesPayment::query()->whereIn('proof_asset_id', $ids)->exists();
 
         if ($taken) {
             throw ValidationException::withMessages([$field => ['Foto ini sudah dipakai. Unggah ulang fotonya.']]);

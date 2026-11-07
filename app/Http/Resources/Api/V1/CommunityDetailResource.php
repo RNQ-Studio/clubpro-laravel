@@ -26,6 +26,8 @@ class CommunityDetailResource extends CommunityResource
             'can_manage' => $canManage,
             'upcoming_activities_count' => $this->whenCounted('upcoming_activities'),
             'pending_members_count' => $this->when($canManage, fn () => $this->pending_members_count),
+            'pending_dues_payments_count' => $this->when($canManage, fn () => $this->pending_dues_payments_count ?? 0),
+            'dues_configured' => ($this->dues_amount ?? 0) > 0 && $this->dues_start_date !== null,
             'photos' => $this->photos->map(fn (Asset $photo): array => ['id' => $photo->id, 'url' => $photo->getPublicUrl()])->values(),
             'description' => $this->description,
             'address' => $this->address,

@@ -9,6 +9,7 @@ use App\Support\Enums\CommunityMemberRole;
 use App\Support\Enums\CommunityMemberStatus;
 use App\Support\Enums\CommunityStatus;
 use App\Support\Enums\CommunityType;
+use App\Support\Enums\DuesPaymentStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -151,6 +152,7 @@ class CommunityService
                 'members as members_count' => fn (Builder $member): Builder => $member->where('status', CommunityMemberStatus::Active),
                 'members as pending_members_count' => fn (Builder $member): Builder => $member->where('status', CommunityMemberStatus::Pending),
                 'activities as upcoming_activities_count' => fn (Builder $activity): Builder => $activity->where('starts_at', '>=', now()),
+                'duesPayments as pending_dues_payments_count' => fn (Builder $payment): Builder => $payment->where('status', DuesPaymentStatus::Pending),
             ]);
     }
 
