@@ -28,12 +28,16 @@ class BannerForm
                         ->maxLength(255),
                     AssetImageUpload::make('image', 'banner')
                         ->label('Gambar')
-                        ->helperText('Rasio 2:1 disarankan (mis. 1600×800). Tanpa gambar, app menampilkan judul di atas latar warna.'),
+                        ->helperText('Portrait 2:3 disarankan (mis. 1080×1620), tampil di popup Beranda.'),
                     TextInput::make('link_url')
-                        ->label('Tautan (opsional)')
+                        ->label('Aksi tombol (opsional)')
                         ->rule(new BannerLink)
                         ->maxLength(2048)
-                        ->helperText('Dibuka saat banner diketuk: tautan https, atau halaman app seperti /communities.'),
+                        ->helperText('Tautan https (dibuka di browser), chat WhatsApp https://wa.me/6281234567890, atau halaman app seperti /communities. Kosong = tanpa tombol.'),
+                    TextInput::make('button_label')
+                        ->label('Label tombol')
+                        ->maxLength(40)
+                        ->helperText('Mis. "Chat Sekarang". Kosong = label bawaan sesuai aksi.'),
                 ]),
             Section::make('Penayangan')
                 ->columns(2)

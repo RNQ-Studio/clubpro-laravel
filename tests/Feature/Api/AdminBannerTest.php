@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Filament\Resources\Banners\Pages\EditBanner;
+use App\Models\AppConfig;
 use App\Models\Asset;
 use App\Models\Banner;
 use App\Models\Community;
@@ -61,6 +62,7 @@ class AdminBannerTest extends TestCase
             'daftar' => ['GET', '/api/v1/admin/banners'],
             'tambah' => ['POST', '/api/v1/admin/banners'],
             'urutan' => ['PUT', '/api/v1/admin/banners/order'],
+            'jeda popup' => ['PUT', '/api/v1/admin/banners/settings'],
             'ubah' => ['PUT', '/api/v1/admin/banners/{id}'],
             'hapus' => ['DELETE', '/api/v1/admin/banners/{id}'],
         ];
@@ -87,11 +89,13 @@ class AdminBannerTest extends TestCase
             $this->json($method, str_replace('{id}', (string) $banner->id, $path), $this->payload([
                 'image_asset_id' => $this->photo($user)->id,
                 'ids' => [$banner->id],
+                'interval_hours' => 1,
             ]))->assertForbidden();
         }
 
         $this->assertSame('Asli', $banner->refresh()->title);
         $this->assertSame(1, Banner::query()->count());
+        $this->assertSame(Banner::DEFAULT_INTERVAL_HOURS, Banner::intervalHours());
     }
 
     public function test_daftar_memuat_semua_status_sesuai_urutan_dan_ringkasan(): void
@@ -109,7 +113,7 @@ class AdminBannerTest extends TestCase
 
         $response = $this->getJson('/api/v1/admin/banners')
             ->assertOk()
-            ->assertJsonPath('meta.summary', ['total' => 5, 'live' => 2, 'max_visible' => 10])
+            ->assertJsonPath('meta.summary', ['total' => 5, 'live' => 2, 'max_visible' => 10, 'interval_hours' => 24])
             ->assertJsonPath('data.0.link_community', ['id' => $community->id, 'name' => 'Panahan Nusantara'])
             ->assertJsonPath('data.1.link_community', null)
             ->assertJsonPath('data.4.link_community', null);
@@ -233,6 +237,9 @@ class AdminBannerTest extends TestCase
             'daftarkan komunitas' => ['/communities/new'],
             'https' => ['https://anaklangit.manahpro.web.id/info?a=1'],
             'http' => ['http://anaklangit.manahpro.web.id'],
+            'whatsapp' => ['https://wa.me/6281234567890'],
+            'whatsapp + pesan' => ['https://wa.me/6281234567890?text=Halo%2C%20saya%20tertarik%20promo%20ini'],
+            'whatsapp + pesan (+)' => ['https://wa.me/6281234567890?text=Halo+kak'],
         ];
     }
 
@@ -262,6 +269,14 @@ class AdminBannerTest extends TestCase
             'id nol' => ['/communities/0'],
             'garis miring akhir' => ['/profile/'],
             'komunitas tak ada' => ['/communities/999999'],
+            'whatsapp tanpa nomor' => ['https://wa.me/'],
+            'whatsapp diawali 0' => ['https://wa.me/081234567890'],
+            'whatsapp dengan +' => ['https://wa.me/+6281234567890'],
+            'whatsapp terlalu pendek' => ['https://wa.me/6281234'],
+            'whatsapp terlalu panjang' => ['https://wa.me/6281234567890123'],
+            'whatsapp http' => ['http://wa.me/6281234567890'],
+            'whatsapp parameter lain' => ['https://wa.me/6281234567890?text=a&b=c'],
+            'whatsapp jalur lain' => ['https://wa.me/6281234567890/x'],
         ];
     }
 
@@ -470,7 +485,148 @@ class AdminBannerTest extends TestCase
 
         $this->getJson('/api/v1/admin/summary')
             ->assertOk()
-            ->assertJsonPath('data.banners', ['total' => 2, 'live' => 1, 'max_visible' => 10]);
+            ->assertJsonPath('data.banners', ['total' => 2, 'live' => 1, 'max_visible' => 10, 'interval_hours' => 24]);
+    }
+
+    public function test_tombol_wa_tersimpan_dan_tampil_di_popup(): void
+    {
+        Passport::actingAs($this->admin);
+
+        $this->postJson('/api/v1/admin/banners', $this->payload([
+            'link_url' => 'https://wa.me/6281234567890?text=Halo',
+            'button_label' => '  Chat Sekarang  ',
+            'image_asset_id' => $this->photo()->id,
+        ]))
+            ->assertCreated()
+            ->assertJsonPath('data.button_label', 'Chat Sekarang');
+
+        $this->getJson('/api/v1/banners')
+            ->assertOk()
+            ->assertJsonPath('data.0.link_url', 'https://wa.me/6281234567890?text=Halo')
+            ->assertJsonPath('data.0.button_label', 'Chat Sekarang');
+    }
+
+    public function test_nomor_wa_tidak_sah_diberi_pesan_yang_jelas(): void
+    {
+        Passport::actingAs($this->admin);
+
+        $this->postJson('/api/v1/admin/banners', $this->payload([
+            'link_url' => 'https://wa.me/081234567890',
+            'image_asset_id' => $this->photo()->id,
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.link_url.0', 'Nomor WhatsApp tidak valid. Tulis dengan kode negara, mis. 6281234567890.');
+    }
+
+    public function test_label_tombol_maksimal_40_karakter(): void
+    {
+        Passport::actingAs($this->admin);
+
+        $this->postJson('/api/v1/admin/banners', $this->payload([
+            'link_url' => '/communities',
+            'button_label' => str_repeat('a', 41),
+            'image_asset_id' => $this->photo()->id,
+        ]))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.button_label.0', 'Label tombol maksimal 40 karakter.');
+    }
+
+    public function test_tanpa_aksi_tidak_ada_tombol(): void
+    {
+        $banner = Banner::factory()->create(['link_url' => '/profile', 'button_label' => 'Lihat Profil']);
+
+        Passport::actingAs($this->admin);
+
+        $this->postJson('/api/v1/admin/banners', $this->payload([
+            'button_label' => 'Tanpa aksi',
+            'image_asset_id' => $this->photo()->id,
+        ]))
+            ->assertCreated()
+            ->assertJsonPath('data.button_label', null);
+
+        $this->putJson("/api/v1/admin/banners/{$banner->id}", $this->payload(['button_label' => 'Tetap?']))
+            ->assertOk()
+            ->assertJsonPath('data.link_url', null)
+            ->assertJsonPath('data.button_label', null);
+    }
+
+    public function test_app_lama_tanpa_label_tombol_tidak_menghapusnya(): void
+    {
+        $banner = Banner::factory()->create(['link_url' => '/profile', 'button_label' => 'Lihat Profil']);
+
+        Passport::actingAs($this->admin);
+
+        $this->putJson("/api/v1/admin/banners/{$banner->id}", $this->payload(['title' => 'Baru', 'link_url' => '/communities']))
+            ->assertOk()
+            ->assertJsonPath('data.button_label', 'Lihat Profil');
+
+        $this->putJson("/api/v1/admin/banners/{$banner->id}", $this->payload(['link_url' => '/communities', 'button_label' => null]))
+            ->assertOk()
+            ->assertJsonPath('data.button_label', null);
+    }
+
+    public function test_jeda_popup_bawaan_24_jam(): void
+    {
+        $this->getJson('/api/v1/banners')->assertOk()->assertJsonPath('meta.interval_hours', 24);
+    }
+
+    public function test_jeda_popup_diatur_super_admin_dan_tercatat(): void
+    {
+        Banner::factory()->create();
+
+        Passport::actingAs($this->admin);
+
+        $this->putJson('/api/v1/admin/banners/settings', ['interval_hours' => 6])
+            ->assertOk()
+            ->assertJsonPath('message', 'Jeda tampil popup tersimpan')
+            ->assertJsonPath('meta.summary.interval_hours', 6)
+            ->assertJsonPath('meta.summary.total', 1)
+            ->assertJsonCount(1, 'data');
+
+        $this->getJson('/api/v1/banners')->assertOk()->assertJsonPath('meta.interval_hours', 6);
+        $this->getJson('/api/v1/admin/summary')->assertOk()->assertJsonPath('data.banners.interval_hours', 6);
+
+        // Disimpan ulang dengan nilai sama: tidak ada log baru.
+        $this->putJson('/api/v1/admin/banners/settings', ['interval_hours' => 6])->assertOk();
+        $this->putJson('/api/v1/admin/banners/settings', ['interval_hours' => 720])->assertOk();
+
+        $logs = Activity::query()->where('log_name', 'admin-panel')->where('event', 'promotion-interval-updated')->orderBy('id')->get();
+        $this->assertCount(2, $logs);
+        $this->assertSame($this->admin->id, $logs[0]->causer_id);
+        $this->assertSame(['old' => 24, 'new' => 6], $logs[0]->properties->all());
+        $this->assertSame(['old' => 6, 'new' => 720], $logs[1]->properties->all());
+        $this->assertSame(720, Banner::intervalHours());
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function badIntervals(): array
+    {
+        return [
+            'kosong' => [null],
+            'nol' => [0],
+            'lebih dari 30 hari' => [721],
+            'pecahan' => [1.5],
+            'teks' => ['sehari'],
+        ];
+    }
+
+    #[DataProvider('badIntervals')]
+    public function test_jeda_popup_di_luar_rentang_ditolak(mixed $hours): void
+    {
+        Passport::actingAs($this->admin);
+
+        $this->putJson('/api/v1/admin/banners/settings', ['interval_hours' => $hours])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('interval_hours');
+
+        $this->assertSame(24, Banner::intervalHours());
+    }
+
+    public function test_isian_jeda_yang_rusak_memakai_bawaan(): void
+    {
+        AppConfig::query()->create(['key' => Banner::INTERVAL_CONFIG_KEY, 'value' => '0', 'type' => 'integer']);
+
+        $this->getJson('/api/v1/banners')->assertOk()->assertJsonPath('meta.interval_hours', 24);
     }
 
     public function test_banner_dari_admin_panel_bisa_disunting_di_back_office(): void
@@ -488,6 +644,22 @@ class AdminBannerTest extends TestCase
         $this->assertSame('', $banner->title);
         $this->assertSame('Disunting', $banner->subtitle);
         $this->assertSame('/communities', $banner->link_url);
+    }
+
+    public function test_back_office_mengatur_label_tombol_dan_aksi_wa(): void
+    {
+        $banner = Banner::factory()->create();
+
+        $this->actingAs($this->admin);
+
+        Livewire::test(EditBanner::class, ['record' => $banner->getRouteKey()])
+            ->fillForm(['link_url' => 'https://wa.me/6281234567890', 'button_label' => 'Chat Admin'])
+            ->call('save')
+            ->assertHasNoFormErrors();
+
+        $banner->refresh();
+        $this->assertSame('https://wa.me/6281234567890', $banner->link_url);
+        $this->assertSame('Chat Admin', $banner->button_label);
     }
 
     public function test_back_office_menolak_tujuan_yang_tidak_sah(): void

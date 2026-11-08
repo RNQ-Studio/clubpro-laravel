@@ -2,19 +2,22 @@
 
 namespace App\Services\Admin;
 
+use App\Models\AppConfig;
 use App\Models\Asset;
 use App\Models\Banner;
 use App\Models\Community;
 use App\Models\User;
 use App\Services\AssetDeletionService;
 use App\Services\ImageAssetGuard;
+use App\Support\Enums\AppConfigType;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Banner slider Beranda dari Admin Panel. Perubahan tercatat lewat activity log model.
+ * Paid Promotion (popup Beranda) dari Admin Panel. Perubahan banner tercatat lewat activity
+ * log model; jeda tampil lewat log `admin-panel`.
  */
 class BannerAdminService
 {
@@ -35,18 +38,43 @@ class BannerAdminService
         );
     }
 
-    /** @return array{total: int, live: int, max_visible: int} */
+    /** @return array{total: int, live: int, max_visible: int, interval_hours: int} */
     public function summary(): array
     {
         return [
             'total' => Banner::query()->count(),
             'live' => Banner::query()->visible()->count(),
             'max_visible' => Banner::MAX_VISIBLE,
+            'interval_hours' => Banner::intervalHours(),
         ];
     }
 
+    /** Popup tampil lagi di perangkat yang sama sesudah [$hours] jam. */
+    public function updateInterval(User $actor, int $hours): void
+    {
+        $old = Banner::intervalHours();
+
+        AppConfig::query()->updateOrCreate(
+            ['key' => Banner::INTERVAL_CONFIG_KEY],
+            [
+                'value' => (string) $hours,
+                'type' => AppConfigType::Integer,
+                'description' => 'Paid Promotion: popup Beranda tampil lagi sesudah sekian jam (1–720).',
+            ],
+        );
+        AppConfig::bustCache(Banner::INTERVAL_CONFIG_KEY);
+
+        if ($old !== $hours) {
+            activity('admin-panel')
+                ->causedBy($actor)
+                ->event('promotion-interval-updated')
+                ->withProperties(['old' => $old, 'new' => $hours])
+                ->log('promotion-interval-updated');
+        }
+    }
+
     /**
-     * @param  array{title: string|null, subtitle: string|null, link_url: string|null, image_asset_id: string, is_active?: bool}  $data
+     * @param  array{title: string|null, subtitle: string|null, link_url: string|null, button_label?: string|null, image_asset_id: string, is_active?: bool}  $data
      *
      * @throws ValidationException
      */
@@ -62,6 +90,8 @@ class BannerAdminService
                 'subtitle' => $data['subtitle'],
                 'image' => $assetId,
                 'link_url' => $data['link_url'],
+                // Tanpa aksi tidak ada tombol.
+                'button_label' => $data['link_url'] === null ? null : ($data['button_label'] ?? null),
                 'is_active' => $data['is_active'] ?? true,
                 // Tampil paling akhir sampai diurutkan.
                 'sort_order' => (int) Banner::query()->max('sort_order') + 1,
@@ -78,7 +108,7 @@ class BannerAdminService
     /**
      * Jadwal tayang dari back-office tidak disentuh.
      *
-     * @param  array{title: string|null, subtitle: string|null, link_url: string|null, image_asset_id?: string, is_active?: bool}  $data
+     * @param  array{title: string|null, subtitle: string|null, link_url: string|null, button_label?: string|null, image_asset_id?: string, is_active?: bool}  $data
      *
      * @throws ValidationException
      */
@@ -98,6 +128,11 @@ class BannerAdminService
                 'subtitle' => $data['subtitle'],
                 'image' => $newImage,
                 'link_url' => $data['link_url'],
+                'button_label' => match (true) {
+                    $data['link_url'] === null => null,
+                    array_key_exists('button_label', $data) => $data['button_label'],
+                    default => $banner->button_label,
+                },
                 'is_active' => $data['is_active'] ?? $banner->is_active,
             ]);
 

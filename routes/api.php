@@ -100,7 +100,7 @@ Route::prefix('v1')->group(function (): void {
 
     Route::apiResource('quotes', QuoteController::class);
 
-    // Banner slider Beranda (publik, dikelola di Admin Panel dan back-office).
+    // Popup Paid Promotion di Beranda (publik, dikelola di Admin Panel dan back-office).
     Route::get('banners', [BannerController::class, 'index'])->middleware('throttle:60,1');
 
     // Pilihan provinsi & kabupaten/kota.
@@ -185,6 +185,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('banners', [AdminBannerController::class, 'index']);
             Route::post('banners', [AdminBannerController::class, 'store']);
             Route::put('banners/order', [AdminBannerController::class, 'reorder']);
+            Route::put('banners/settings', [AdminBannerController::class, 'settings']);
             Route::put('banners/{banner}', [AdminBannerController::class, 'update'])->whereNumber('banner');
             Route::delete('banners/{banner}', [AdminBannerController::class, 'destroy'])->whereNumber('banner');
         });

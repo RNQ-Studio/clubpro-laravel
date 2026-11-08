@@ -11,7 +11,8 @@ use Illuminate\Http\JsonResponse;
 class BannerController extends Controller
 {
     /**
-     * Banner slider Beranda: hanya yang aktif dan sedang dalam jadwal tayang.
+     * Popup Paid Promotion di Beranda: hanya yang aktif dan sedang dalam jadwal tayang.
+     * `meta.interval_hours` = popup tampil lagi di perangkat yang sama sesudah sekian jam.
      *
      * @unauthenticated
      */
@@ -19,6 +20,9 @@ class BannerController extends Controller
     {
         $banners = Banner::query()->visible()->with('imageAsset')->limit(Banner::MAX_VISIBLE)->get();
 
-        return ApiResponse::success(BannerResource::collection($banners));
+        return ApiResponse::success(
+            BannerResource::collection($banners),
+            meta: ['interval_hours' => Banner::intervalHours()],
+        );
     }
 }

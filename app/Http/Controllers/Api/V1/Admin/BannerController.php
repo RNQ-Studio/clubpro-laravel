@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\Admin\ReorderBannersRequest;
 use App\Http\Requests\Api\V1\Admin\SaveBannerRequest;
+use App\Http\Requests\Api\V1\Admin\UpdatePromotionSettingsRequest;
 use App\Http\Resources\Api\V1\Admin\AdminBannerResource;
 use App\Models\Banner;
 use App\Models\User;
@@ -17,7 +18,7 @@ class BannerController extends Controller
     public function __construct(private readonly BannerAdminService $banners) {}
 
     /**
-     * Semua banner sesuai urutan tampil, beserta ringkasannya.
+     * Paid Promotion: semua banner sesuai urutan tampil, beserta ringkasan dan jeda popup.
      */
     public function index(): JsonResponse
     {
@@ -32,7 +33,7 @@ class BannerController extends Controller
         /** @var User $actor */
         $actor = $request->user();
 
-        /** @var array{title: string|null, subtitle: string|null, link_url: string|null, image_asset_id: string, is_active?: bool} $data */
+        /** @var array{title: string|null, subtitle: string|null, link_url: string|null, button_label?: string|null, image_asset_id: string, is_active?: bool} $data */
         $data = $request->validated();
 
         return ApiResponse::success(
@@ -47,7 +48,7 @@ class BannerController extends Controller
         /** @var User $actor */
         $actor = $request->user();
 
-        /** @var array{title: string|null, subtitle: string|null, link_url: string|null, image_asset_id?: string, is_active?: bool} $data */
+        /** @var array{title: string|null, subtitle: string|null, link_url: string|null, button_label?: string|null, image_asset_id?: string, is_active?: bool} $data */
         $data = $request->validated();
 
         return ApiResponse::success(
@@ -74,6 +75,19 @@ class BannerController extends Controller
         $this->banners->reorder($ids);
 
         return $this->list('Urutan banner tersimpan');
+    }
+
+    /**
+     * Jeda tampil popup di Beranda (jam), berlaku untuk semua anggota.
+     */
+    public function settings(UpdatePromotionSettingsRequest $request): JsonResponse
+    {
+        /** @var User $actor */
+        $actor = $request->user();
+
+        $this->banners->updateInterval($actor, $request->integer('interval_hours'));
+
+        return $this->list('Jeda tampil popup tersimpan');
     }
 
     private function list(string $message): JsonResponse

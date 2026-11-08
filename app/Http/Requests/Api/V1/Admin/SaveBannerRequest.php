@@ -24,6 +24,8 @@ class SaveBannerRequest extends FormRequest
             'title' => ['present', 'nullable', 'string', 'max:120'],
             'subtitle' => ['present', 'nullable', 'string', 'max:255'],
             'link_url' => ['present', 'nullable', 'string', 'max:2048', new BannerLink],
+            // Opsional agar app lama yang belum mengenal tombol tidak ditolak.
+            'button_label' => ['sometimes', 'nullable', 'string', 'max:40'],
             'image_asset_id' => [$this->isMethod('POST') ? 'required' : 'sometimes', 'uuid'],
             'is_active' => ['sometimes', 'boolean'],
         ];
@@ -40,6 +42,7 @@ class SaveBannerRequest extends FormRequest
             'title.max' => 'Judul maksimal :max karakter.',
             'subtitle.max' => 'Keterangan maksimal :max karakter.',
             'link_url.max' => 'Tautan maksimal :max karakter.',
+            'button_label.max' => 'Label tombol maksimal :max karakter.',
         ];
     }
 }

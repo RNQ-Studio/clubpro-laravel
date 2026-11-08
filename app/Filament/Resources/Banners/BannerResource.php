@@ -16,7 +16,7 @@ use Filament\Tables\Table;
 use UnitEnum;
 
 /**
- * Banner slider di Beranda app anggota (urutan, jadwal tayang, tautan).
+ * Paid Promotion: popup slider di Beranda app anggota (urutan, jadwal tayang, tombol).
  */
 class BannerResource extends Resource
 {
@@ -26,11 +26,11 @@ class BannerResource extends Resource
 
     protected static string|UnitEnum|null $navigationGroup = 'App Management';
 
-    protected static ?string $navigationLabel = 'Banner Beranda';
+    protected static ?string $navigationLabel = 'Paid Promotion';
 
-    protected static ?string $modelLabel = 'Banner';
+    protected static ?string $modelLabel = 'Promosi';
 
-    protected static ?string $pluralModelLabel = 'Banner Beranda';
+    protected static ?string $pluralModelLabel = 'Paid Promotion';
 
     protected static ?string $recordTitleAttribute = 'title';
 

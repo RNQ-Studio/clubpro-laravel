@@ -29,7 +29,7 @@ class BannerTest extends TestCase
         $response = $this->getJson('/api/v1/banners')
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonStructure(['data' => [['id', 'title', 'subtitle', 'image_url', 'link_url']]]);
+            ->assertJsonStructure(['data' => [['id', 'title', 'subtitle', 'image_url', 'link_url', 'button_label']], 'meta' => ['interval_hours']]);
 
         $this->assertSame(['Pertama', 'Kedua', 'Dalam jadwal'], collect($response->json('data'))->pluck('title')->all());
         $this->assertSame('https://anaklangit.manahpro.web.id/articles', $response->json('data.0.link_url'));
@@ -47,7 +47,7 @@ class BannerTest extends TestCase
 
     public function test_empty_list_is_ok(): void
     {
-        $this->getJson('/api/v1/banners')->assertOk()->assertJsonPath('data', []);
+        $this->getJson('/api/v1/banners')->assertOk()->assertJsonPath('data', [])->assertJsonPath('meta.interval_hours', 24);
     }
 
     public function test_admin_can_manage_banners_in_back_office_and_staff_cannot(): void

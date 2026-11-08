@@ -8,7 +8,8 @@ use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 
 /**
- * Tujuan banner saat diketuk: halaman app yang dikenal, atau tautan http/https.
+ * Aksi tombol/ketuk banner: halaman app yang dikenal, chat WhatsApp (wa.me), atau tautan
+ * http/https.
  */
 class BannerLink implements ValidationRule
 {
@@ -18,6 +19,15 @@ class BannerLink implements ValidationRule
 
         if (! str_starts_with($link, '/')) {
             $scheme = strtolower((string) parse_url($link, PHP_URL_SCHEME));
+            $host = strtolower((string) parse_url($link, PHP_URL_HOST));
+
+            if ($host === 'wa.me') {
+                if (preg_match(Banner::WHATSAPP_LINK_PATTERN, $link) !== 1) {
+                    $fail('Nomor WhatsApp tidak valid. Tulis dengan kode negara, mis. 6281234567890.');
+                }
+
+                return;
+            }
 
             if (! in_array($scheme, ['http', 'https'], true) || filter_var($link, FILTER_VALIDATE_URL) === false) {
                 $fail('Tautan harus diawali http:// atau https://.');

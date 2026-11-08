@@ -26,6 +26,7 @@ class AdminBannerResource extends JsonResource
             'subtitle' => $this->subtitle,
             'image_url' => $this->image_url,
             'link_url' => $this->link_url,
+            'button_label' => $this->button_label,
             // Null bila tujuannya bukan komunitas, atau komunitasnya sudah terhapus.
             'link_community' => $community === null ? null : [
                 'id' => $community->id,
