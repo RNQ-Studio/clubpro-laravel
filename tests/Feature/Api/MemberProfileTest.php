@@ -133,6 +133,27 @@ class MemberProfileTest extends TestCase
             ->assertJsonPath('data.nik_city_name', 'Kabupaten Garut');
     }
 
+    public function test_nik_region_counts_separately_from_domicile(): void
+    {
+        $missing = collect($this->putJson('/api/v1/auth/me', [
+            'domicile_province_code' => '32',
+            'domicile_city_code' => '32.73',
+        ])->assertOk()->json('data.profile_completion.missing'))->pluck('key');
+
+        $this->assertNotContains('domicile', $missing);
+        $this->assertContains('nik_region', $missing);
+
+        $missing = collect($this->putJson('/api/v1/auth/me', [
+            'domicile_province_code' => null,
+            'domicile_city_code' => null,
+            'nik_province_code' => '35',
+            'nik_city_code' => '35.78',
+        ])->assertOk()->json('data.profile_completion.missing'))->pluck('key');
+
+        $this->assertContains('domicile', $missing);
+        $this->assertNotContains('nik_region', $missing);
+    }
+
     public function test_regions_are_validated_in_pairs(): void
     {
         $this->putJson('/api/v1/auth/me', ['domicile_province_code' => '32'])
