@@ -17,6 +17,8 @@ class UserResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $profiles = app(MemberProfileService::class);
+
         return [
             'id' => $this->id,
             'name' => $this->name,
@@ -24,13 +26,8 @@ class UserResource extends JsonResource
             'phone' => $this->phone,
             'avatar_url' => $this->avatarUrl(),
             'gender' => $this->gender?->value,
-            'birth_place' => $this->birth_place,
-            'birth_date' => $this->birth_date?->format('Y-m-d'),
-            'address' => $this->address,
-            'blood_type' => $this->blood_type?->value,
-            'emergency_contact_name' => $this->emergency_contact_name,
-            'emergency_contact_phone' => $this->emergency_contact_phone,
-            'profile_completion' => app(MemberProfileService::class)->completion($this->resource),
+            ...$profiles->regionAttributes($this->resource),
+            'profile_completion' => $profiles->completion($this->resource),
             'is_active' => $this->is_active,
             'roles' => $this->getRoleNames()->values(),
             'permissions' => $this->getAllPermissions()->pluck('name')->values(),

@@ -167,7 +167,7 @@ class CommunityMemberTest extends TestCase
         $this->assertSame(['Creator', 'Budi', 'Andi', 'Zaki'], array_column($rows, 'name'));
         $this->assertSame('Creator', $rows[0]['role_label']);
         $this->assertSame('Admin', $rows[1]['role_label']);
-        foreach (['email', 'phone', 'address', 'birth_date', 'emergency_contact_phone'] as $private) {
+        foreach (['email', 'phone', 'address', 'birth_date', 'emergency_contact_phone', 'domicile_city_name', 'nik_city_name'] as $private) {
             $this->assertArrayNotHasKey($private, $rows[0]);
         }
     }

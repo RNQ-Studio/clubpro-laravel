@@ -233,6 +233,8 @@ class CommunityClubTest extends TestCase
             'address' => 'Jl. Rahasia 1',
             'birth_date' => '2001-04-12',
             'emergency_contact_phone' => '081298765432',
+            'domicile_city_name' => 'Kota Bandung',
+            'nik_city_name' => 'Kabupaten Garut',
         ]);
         CommunityMember::factory()->admin()->for($this->community)->for($target)->create();
         Passport::actingAs($viewer);
@@ -244,7 +246,7 @@ class CommunityClubTest extends TestCase
             ->assertJsonPath('data.communities.0.role', 'admin')
             ->assertJsonPath('data.communities.0.role_label', 'Admin');
 
-        foreach (['rina@gmail.com', '081234567890', 'Jl. Rahasia 1', '2001-04-12', '081298765432'] as $private) {
+        foreach (['rina@gmail.com', '081234567890', 'Jl. Rahasia 1', '2001-04-12', '081298765432', 'Kota Bandung', 'Kabupaten Garut'] as $private) {
             $this->assertStringNotContainsString($private, (string) $response->getContent());
         }
     }

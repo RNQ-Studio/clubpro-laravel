@@ -2,14 +2,19 @@
 
 namespace App\Http\Requests\Api\V1;
 
-use App\Support\Enums\BloodType;
+use App\Services\IndonesiaRegionService;
+use App\Services\MemberProfileService;
 use App\Support\Enums\Gender;
+use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 /**
  * Pembaruan sebagian data diri: hanya isian yang dikirim yang diubah, dan
  * nilai kosong/null mengosongkan isian itu (kecuali nama & email).
+ *
+ * Wilayah (domisili, sesuai NIK) dikirim berpasangan: kode provinsi + kode
+ * kabupaten/kota milik provinsi itu, atau keduanya null untuk mengosongkan.
  */
 class UpdateProfileRequest extends FormRequest
 {
@@ -21,10 +26,8 @@ class UpdateProfileRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         // Nomor ditulis bebas di app ("0812-3456 7890") → simpan angka saja.
-        foreach (['phone', 'emergency_contact_phone'] as $field) {
-            if (is_string($this->input($field))) {
-                $this->merge([$field => preg_replace('/[\s\-.()]/', '', $this->input($field))]);
-            }
+        if (is_string($this->input('phone'))) {
+            $this->merge(['phone' => preg_replace('/[\s\-.()]/', '', $this->input('phone'))]);
         }
     }
 
@@ -34,9 +37,8 @@ class UpdateProfileRequest extends FormRequest
     public function rules(): array
     {
         $userId = $this->user()?->getKey();
-        $phone = ['nullable', 'string', 'regex:/^\+?[0-9]{8,15}$/'];
 
-        return [
+        $rules = [
             'name' => ['sometimes', 'required', 'string', 'max:255'],
             'email' => [
                 'sometimes',
@@ -46,13 +48,58 @@ class UpdateProfileRequest extends FormRequest
                 Rule::unique('users', 'email')->ignore($userId),
             ],
             'gender' => ['sometimes', 'nullable', Rule::enum(Gender::class)],
-            'birth_place' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'birth_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'after:1900-01-01', 'before:today'],
-            'phone' => ['sometimes', ...$phone, Rule::unique('users', 'phone')->ignore($userId)],
-            'address' => ['sometimes', 'nullable', 'string', 'max:1000'],
-            'blood_type' => ['sometimes', 'nullable', Rule::enum(BloodType::class)],
-            'emergency_contact_name' => ['sometimes', 'nullable', 'string', 'max:100'],
-            'emergency_contact_phone' => ['sometimes', ...$phone],
+            'phone' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'regex:/^\+?[0-9]{8,15}$/',
+                Rule::unique('users', 'phone')->ignore($userId),
+            ],
+            'nik_same_as_domicile' => ['sometimes', 'boolean'],
+        ];
+
+        foreach (MemberProfileService::REGION_PREFIXES as $prefix) {
+            $rules += $this->regionRules($prefix);
+        }
+
+        return $rules;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function regionRules(string $prefix): array
+    {
+        $regions = app(IndonesiaRegionService::class);
+        $province = "{$prefix}_province_code";
+        $city = "{$prefix}_city_code";
+
+        return [
+            $province => ['nullable', 'string', "required_with:{$city}", function (string $attribute, mixed $value, Closure $fail) use ($regions): void {
+                if ($regions->province(is_string($value) ? $value : null) === null) {
+                    $fail('Provinsi tidak dikenal.');
+                }
+            }],
+            $city => ['nullable', 'string', "required_with:{$province}", function (string $attribute, mixed $value, Closure $fail) use ($regions, $province): void {
+                if ($regions->city($this->string($province)->toString(), is_string($value) ? $value : null) === null) {
+                    $fail('Kota/kabupaten tidak sesuai dengan provinsinya.');
+                }
+            }],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'phone.regex' => 'Nomor WhatsApp tidak valid (8–15 angka).',
+            'phone.unique' => 'Nomor WhatsApp ini sudah dipakai akun lain.',
+            'domicile_province_code.required_with' => 'Pilih provinsi domisili.',
+            'domicile_city_code.required_with' => 'Pilih kota/kabupaten domisili.',
+            'nik_province_code.required_with' => 'Pilih provinsi sesuai NIK.',
+            'nik_city_code.required_with' => 'Pilih kota/kabupaten sesuai NIK.',
         ];
     }
 }

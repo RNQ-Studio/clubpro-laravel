@@ -200,9 +200,12 @@ class AdminUserTest extends TestCase
     {
         $user = User::factory()->create([
             'phone' => '081234567890',
+            'domicile_province_code' => '32',
+            'domicile_province_name' => 'Jawa Barat',
+            'domicile_city_code' => '32.73',
+            'domicile_city_name' => 'Kota Bandung',
+            'nik_same_as_domicile' => true,
             'address' => 'Jl. Merdeka 10',
-            'birth_place' => 'Bandung',
-            'birth_date' => '2001-04-12',
             'last_login_at' => now()->subDay(),
             'last_seen_at' => now()->subHour(),
         ]);
@@ -217,8 +220,11 @@ class AdminUserTest extends TestCase
             ->assertJsonPath('data.phone', '081234567890')
             ->assertJsonPath('data.avatar_url', 'https://lh3.googleusercontent.com/a/rina')
             ->assertJsonPath('data.login_method', 'google')
-            ->assertJsonPath('data.birth_date', '2001-04-12')
-            ->assertJsonPath('data.address', 'Jl. Merdeka 10')
+            ->assertJsonPath('data.domicile_city_name', 'Kota Bandung')
+            ->assertJsonPath('data.domicile_province_name', 'Jawa Barat')
+            ->assertJsonPath('data.nik_same_as_domicile', true)
+            ->assertJsonMissingPath('data.address')
+            ->assertJsonMissingPath('data.emergency_contact_name')
             ->assertJsonCount(2, 'data.devices')
             ->assertJsonPath('data.devices.0.ip_address', '36.86.63.180')
             ->assertJsonStructure(['data' => [

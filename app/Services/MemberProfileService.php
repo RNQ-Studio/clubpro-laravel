@@ -16,19 +16,21 @@ class MemberProfileService
      */
     public const COMPLETION_FIELDS = [
         'name' => 'Nama lengkap',
-        'avatar' => 'Foto profil',
         'gender' => 'Jenis kelamin',
-        'birth_place' => 'Tempat lahir',
-        'birth_date' => 'Tanggal lahir',
-        'phone' => 'Nomor HP / WhatsApp',
-        'address' => 'Alamat',
-        'blood_type' => 'Golongan darah',
-        'emergency_contact_name' => 'Nama kontak darurat',
-        'emergency_contact_phone' => 'Nomor kontak darurat',
+        'phone' => 'Nomor WhatsApp',
+        'domicile' => 'Provinsi & kota domisili',
+        'nik_region' => 'Provinsi & kota sesuai NIK',
     ];
+
+    /** Awalan kolom wilayah: `{awalan}_province_code`, `{awalan}_city_name`, dst. */
+    public const REGION_PREFIXES = ['domicile', 'nik'];
+
+    public function __construct(private readonly IndonesiaRegionService $regions) {}
 
     /**
      * Simpan hanya isian yang dikirim; string kosong berarti dikosongkan.
+     * Nama wilayah diambil dari kodenya. Wilayah NIK yang "sama dengan
+     * domisili" disalin dari domisili dan ikut berubah bersamanya.
      *
      * @param  array<string, mixed>  $data  Data tervalidasi UpdateProfileRequest.
      */
@@ -39,7 +41,19 @@ class MemberProfileService
             $data,
         );
 
+        foreach (self::REGION_PREFIXES as $prefix) {
+            if (array_key_exists("{$prefix}_city_code", $data)) {
+                $data += $this->regionNames($prefix, $data["{$prefix}_province_code"] ?? null, $data["{$prefix}_city_code"]);
+            }
+        }
+
         $user->fill($data);
+
+        if ($user->nik_same_as_domicile) {
+            foreach (['province_code', 'province_name', 'city_code', 'city_name'] as $column) {
+                $user->setAttribute("nik_{$column}", $user->getAttribute("domicile_{$column}"));
+            }
+        }
 
         // Nomor HP baru belum terverifikasi OTP.
         if ($user->isDirty('phone')) {
@@ -49,6 +63,23 @@ class MemberProfileService
         $user->save();
 
         return $user->refresh();
+    }
+
+    /**
+     * Wilayah data diri untuk API (domisili & sesuai NIK).
+     *
+     * @return array<string, string|bool|null>
+     */
+    public function regionAttributes(User $user): array
+    {
+        $attributes = [];
+        foreach (self::REGION_PREFIXES as $prefix) {
+            foreach (['province_code', 'province_name', 'city_code', 'city_name'] as $column) {
+                $attributes["{$prefix}_{$column}"] = $user->getAttribute("{$prefix}_{$column}");
+            }
+        }
+
+        return [...$attributes, 'nik_same_as_domicile' => $user->nik_same_as_domicile];
     }
 
     /**
@@ -76,14 +107,27 @@ class MemberProfileService
         ];
     }
 
+    /**
+     * @return array<string, string|null>
+     */
+    private function regionNames(string $prefix, mixed $provinceCode, mixed $cityCode): array
+    {
+        $provinceCode = is_string($provinceCode) ? $provinceCode : null;
+        $cityCode = is_string($cityCode) ? $cityCode : null;
+
+        return [
+            "{$prefix}_province_name" => $this->regions->province($provinceCode)['name'] ?? null,
+            "{$prefix}_city_name" => $this->regions->city($provinceCode, $cityCode)['name'] ?? null,
+        ];
+    }
+
     private function isFilled(User $user, string $key): bool
     {
-        // Foto akun Google dihitung sebagai foto profil.
-        if ($key === 'avatar') {
-            return filled($user->avatar) || filled($user->google_avatar_url);
-        }
-
-        $value = $user->getAttribute($key);
+        $value = match ($key) {
+            'domicile' => $user->domicile_city_code,
+            'nik_region' => $user->nik_city_code,
+            default => $user->getAttribute($key),
+        };
 
         return $value !== null && (! is_string($value) || trim($value) !== '');
     }

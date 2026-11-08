@@ -41,6 +41,15 @@ use Spatie\Permission\Traits\HasRoles;
  * @property BloodType|null $blood_type
  * @property string|null $emergency_contact_name
  * @property string|null $emergency_contact_phone
+ * @property string|null $domicile_province_code
+ * @property string|null $domicile_province_name
+ * @property string|null $domicile_city_code
+ * @property string|null $domicile_city_name
+ * @property string|null $nik_province_code
+ * @property string|null $nik_province_name
+ * @property string|null $nik_city_code
+ * @property string|null $nik_city_name
+ * @property bool $nik_same_as_domicile
  * @property bool $is_active
  * @property Carbon|null $email_verified_at
  * @property Carbon|null $phone_verified_at
@@ -54,12 +63,19 @@ use Spatie\Permission\Traits\HasRoles;
     // Data diri anggota
     'gender', 'birth_place', 'birth_date', 'address', 'blood_type',
     'emergency_contact_name', 'emergency_contact_phone',
+    'domicile_province_code', 'domicile_province_name', 'domicile_city_code', 'domicile_city_name',
+    'nik_province_code', 'nik_province_name', 'nik_city_code', 'nik_city_name', 'nik_same_as_domicile',
 ])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser, MustVerifyEmail, OAuthenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, HasRoles, LogsActivity, Notifiable;
+
+    /** @var array<string, mixed> */
+    protected $attributes = [
+        'nik_same_as_domicile' => false,
+    ];
 
     public function getActivitylogOptions(): LogOptions
     {
@@ -141,6 +157,7 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, OAu
             'gender' => Gender::class,
             'birth_date' => 'date',
             'blood_type' => BloodType::class,
+            'nik_same_as_domicile' => 'boolean',
         ];
     }
 
