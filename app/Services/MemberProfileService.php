@@ -79,7 +79,7 @@ class MemberProfileService
             }
         }
 
-        return [...$attributes, 'nik_same_as_domicile' => $user->nik_same_as_domicile];
+        return [...$attributes, 'nik_same_as_domicile' => (bool) $user->nik_same_as_domicile];
     }
 
     /**

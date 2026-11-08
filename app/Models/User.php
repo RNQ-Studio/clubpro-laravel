@@ -72,11 +72,6 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, OAu
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, HasRoles, LogsActivity, Notifiable;
 
-    /** @var array<string, mixed> */
-    protected $attributes = [
-        'nik_same_as_domicile' => false,
-    ];
-
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
