@@ -42,6 +42,14 @@ class CommunityMember extends Model
     }
 
     /** @return BelongsTo<Community, $this> */
+    /** Nomor pada kartu anggota, mis. `PN-000042`: nama pendek komunitas + id keanggotaan. */
+    public function cardNumber(): string
+    {
+        $prefix = strtoupper((string) preg_replace('/[^A-Za-z0-9]/', '', $this->community->short_name));
+
+        return sprintf('%s-%06d', $prefix !== '' ? $prefix : 'CEO', $this->id);
+    }
+
     public function community(): BelongsTo
     {
         return $this->belongsTo(Community::class);

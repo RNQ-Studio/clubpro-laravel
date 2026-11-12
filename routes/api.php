@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\V1\CommunityMemberController;
 use App\Http\Controllers\Api\V1\CommunityPhotoController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\MemberCardController;
 use App\Http\Controllers\Api\V1\MemberProfileController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OtpController;
@@ -127,6 +128,7 @@ Route::prefix('v1')->group(function (): void {
             Route::post('leave', [CommunityMemberController::class, 'leave']);
 
             Route::get('members', [CommunityMemberController::class, 'index']);
+            Route::get('card', [MemberCardController::class, 'show']);
             Route::post('members/{member}/approve', [CommunityMemberController::class, 'approve'])->whereNumber('member');
             Route::put('members/{member}/role', [CommunityMemberController::class, 'updateRole'])->whereNumber('member');
             Route::delete('members/{member}', [CommunityMemberController::class, 'destroy'])->whereNumber('member');

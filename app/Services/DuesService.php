@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Support\Enums\CommunityMemberStatus;
 use App\Support\Enums\DuesMonthStatus;
 use App\Support\Enums\DuesPaymentStatus;
+use App\Support\Enums\MemberCardStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -124,6 +125,36 @@ class DuesService
         }
 
         return $months;
+    }
+
+    /**
+     * Masa berlaku kartu anggota: bulan terakhir yang lunas berturut-turut sejak awal tagihan
+     * (`paid_until`, sama dengan halaman Iuran) berlaku sampai jatuh tempo bulan sesudahnya.
+     * Pada hari itu tagihan berikutnya belum menunggak; esoknya kartu kedaluwarsa.
+     *
+     * @return array{status: MemberCardStatus, valid_until: CarbonImmutable|null, paid_until: CarbonImmutable|null}
+     */
+    public function cardValidity(Community $community, CommunityMember $member): array
+    {
+        $from = $this->billableFrom($community, $member);
+        if ($from === null) {
+            return ['status' => MemberCardStatus::NoDues, 'valid_until' => null, 'paid_until' => null];
+        }
+
+        $today = $this->today();
+        $rows = $this->rowsOf($community, [$member->user_id])[$member->user_id] ?? [];
+        [, $paidUntil] = $this->arrears($community, $rows, $from, $today);
+        if ($paidUntil === null) {
+            return ['status' => MemberCardStatus::Inactive, 'valid_until' => null, 'paid_until' => null];
+        }
+
+        $validUntil = $this->dueDate($community, $paidUntil->addMonthNoOverflow());
+
+        return [
+            'status' => $validUntil->lessThan($today) ? MemberCardStatus::Expired : MemberCardStatus::Active,
+            'valid_until' => $validUntil,
+            'paid_until' => $paidUntil,
+        ];
     }
 
     /** Uang masuk yang masih harus dibayar [member]: 0 bila lunas atau sedang diajukan. */
