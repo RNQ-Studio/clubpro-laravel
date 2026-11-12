@@ -181,6 +181,26 @@ class MemberCardTest extends TestCase
             ->assertJsonPath('data.validity.pending_payment', true);
     }
 
+    public function test_pembayaran_yang_sudah_diputus_bukan_menunggu(): void
+    {
+        $this->configure();
+        $payment = $this->community->duesPayments()->forceCreate([
+            'user_id' => $this->member->getKey(),
+            'months_count' => 1,
+            'months' => ['2026-03'],
+            'monthly_amount' => 50000,
+            'entry_fee' => 0,
+            'total_amount' => 50000,
+            'status' => 'rejected',
+            'review_note' => 'Bukti buram',
+        ]);
+        $this->assertSame('rejected', $payment->refresh()->status->value);
+
+        $this->getJson($this->url())
+            ->assertOk()
+            ->assertJsonPath('data.validity.pending_payment', false);
+    }
+
     public function test_hanya_anggota_aktif(): void
     {
         $this->membership->forceFill(['status' => 'pending'])->save();
