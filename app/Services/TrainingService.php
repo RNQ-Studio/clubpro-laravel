@@ -22,6 +22,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /** Training is a consumer of S03 custody lots and reservations, never a second wallet. */
 class TrainingService
@@ -308,7 +309,11 @@ class TrainingService
             abort_if(TrainingAttendance::query()->where('corrected_by', $actor->id)->where('correction_key', $data['idempotency_key'])->exists(), 409, 'Kunci koreksi dipakai absensi lain.');
             $purchase = TrainingPurchase::query()->lockForUpdate()->findOrFail($attendance->purchase_id);
             abort_if(MemberIdentity::query()->findOrFail($purchase->member_identity_id)->merged_into_id !== null, 409, 'Identitas atlet telah digabung. Koreksi memerlukan pemulihan teknis yang menjaga kepemilikan paket.');
-            $journal = $this->ledger->restoreTrainingAllocation($actor, LedgerReservation::query()->findOrFail($purchase->reservation_id), LedgerJournal::query()->findOrFail($attendance->journal_id), $data['idempotency_key'], ['reference' => $attendance->id, 'attendance_id' => $attendance->id, 'reason' => $data['reason']]);
+            try {
+                $journal = $this->ledger->restoreTrainingAllocation($actor, LedgerReservation::query()->findOrFail($purchase->reservation_id), LedgerJournal::query()->findOrFail($attendance->journal_id), $data['idempotency_key'], ['reference' => $attendance->id, 'attendance_id' => $attendance->id, 'reason' => $data['reason']]);
+            } catch (ValidationException $exception) {
+                throw ValidationException::withMessages(['correction' => ['Dana penerima belum mencukupi untuk koreksi. Jatah dan dana tetap utuh.']]);
+            }
             $purchase->update(['remaining_sessions' => $purchase->remaining_sessions + 1, 'remaining_amount' => $purchase->remaining_amount + $attendance->allocation]);
             $attendance->update(['status' => 'corrected', 'corrected_by' => $actor->id, 'corrected_by_name' => $actor->name, 'corrected_at' => now(), 'correction_reason' => $data['reason'], 'correction_key' => $data['idempotency_key'], 'correction_journal_id' => $journal->id]);
             $this->event($community, $attendance->member_identity_id, 'training_attendance_corrected', $attendance->id, ['attendance_id' => $attendance->id, 'original_journal_id' => $attendance->journal_id, 'correction_journal_id' => $journal->id, 'reason' => $data['reason'], 'actor_id' => $actor->id]);

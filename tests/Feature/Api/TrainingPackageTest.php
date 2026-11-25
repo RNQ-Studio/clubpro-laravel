@@ -220,7 +220,7 @@ class TrainingPackageTest extends TestCase
         $this->ledger->transfer($this->coach, 'spent', 'fixture_spent', $wallet, $this->ledger->communityAccount($this->community), 6000, $this->community);
         $before = LedgerJournal::query()->count();
         Passport::actingAs($this->founder);
-        $this->postJson($this->url('/attendances/'.$attendance->id.'/correct'), ['reason' => 'Insiden salah absensi teknis', 'idempotency_key' => 'insufficient-correction'])->assertUnprocessable();
+        $this->postJson($this->url('/attendances/'.$attendance->id.'/correct'), ['reason' => 'Insiden salah absensi teknis', 'idempotency_key' => 'insufficient-correction'])->assertUnprocessable()->assertJsonPath('message', 'Dana penerima belum mencukupi untuk koreksi. Jatah dan dana tetap utuh.');
         $this->assertSame('confirmed', $attendance->refresh()->status);
         $this->assertSame(6, $purchase->refresh()->remaining_sessions);
         $this->assertSame($before, LedgerJournal::query()->count());
