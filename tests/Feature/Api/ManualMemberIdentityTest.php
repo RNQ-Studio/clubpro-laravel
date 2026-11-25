@@ -341,6 +341,38 @@ class ManualMemberIdentityTest extends TestCase
         $this->getJson('/api/v1/dependents/'.$claim['id'])->assertOk();
     }
 
+    public function test_community_manager_cannot_revoke_guardian_delegation_issued_by_linked_account_owner(): void
+    {
+        $account = User::factory()->create();
+        $member = CommunityMember::factory()->for($this->community)->for($account)->create();
+        $guardian = User::factory()->create();
+        Passport::actingAs($account);
+        [$invite, $token] = $this->invite($member, $guardian);
+        Passport::actingAs($guardian);
+        $this->postJson('/api/v1/guardian-invitations/'.$invite->id.'/claim', ['token' => $token])->assertOk();
+        $grant = GuardianGrant::query()->firstOrFail();
+        Passport::actingAs($this->founder);
+        $this->deleteJson('/api/v1/guardian-grants/'.$grant->id)->assertForbidden();
+        $this->assertNull($grant->refresh()->revoked_at);
+        Passport::actingAs($account);
+        $this->deleteJson('/api/v1/guardian-grants/'.$grant->id)->assertOk();
+    }
+
+    public function test_legacy_case_ambiguous_email_cannot_claim_account_or_guardian_invitation(): void
+    {
+        $recipient = User::factory()->create(['email' => 'legacy-claim@anaklangit.manahpro.web.id']);
+        $member = $this->manual();
+        [$guardianInvite, $guardianToken] = $this->invite($member, $recipient);
+        [$accountInvite, $accountToken] = $this->invite($member, $recipient, 'account');
+        $other = User::factory()->create();
+        DB::table('users')->where('id', $other->id)->update(['email' => strtoupper($recipient->email)]);
+        Passport::actingAs($recipient);
+        $this->postJson('/api/v1/guardian-invitations/'.$guardianInvite->id.'/claim', ['token' => $guardianToken])->assertUnprocessable();
+        $this->postJson('/api/v1/guardian-invitations/'.$accountInvite->id.'/claim', ['token' => $accountToken])->assertUnprocessable();
+        $this->assertDatabaseCount('guardian_grants', 0);
+        $this->assertNull($member->refresh()->user_id);
+    }
+
     /** @param array<string,mixed> $overrides */
     private function manual(array $overrides = []): CommunityMember
     {

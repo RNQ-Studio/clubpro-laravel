@@ -64,6 +64,7 @@ class GuardianService
         return DB::transaction(function () use ($actor, $invitation, $token): MemberIdentity {
             $invitation = MemberInvitation::query()->lockForUpdate()->findOrFail($invitation->id);
             if (! $actor->hasVerifiedEmail() || strtolower($actor->email) !== $invitation->email
+                || User::query()->whereRaw('lower(email) = ?', [$invitation->email])->count() !== 1
                 || $invitation->claimed_at !== null || $invitation->revoked_at !== null || $invitation->expires_at->isPast()
                 || ! $invitation->member->isActive()
                 || ! hash_equals($invitation->token_hash, hash('sha256', $token))) {
@@ -120,6 +121,9 @@ class GuardianService
     public function revoke(User $actor, GuardianGrant $grant): void
     {
         if ($grant->guardian_user_id !== $actor->getKey() && $grant->identity->user_id !== $actor->getKey()) {
+            if ($grant->identity->user_id !== null) {
+                throw new AuthorizationException('Hubungan wali akun hanya dapat dicabut oleh pemilik akun atau wali.');
+            }
             $this->members->authorizeSubject($actor, $grant->member);
         }
         $grant->update(['revoked_at' => now()]);
