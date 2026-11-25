@@ -133,6 +133,22 @@ class AuthService
         });
     }
 
+    /** Revoke other access/refresh sessions while retaining this authenticated bearer. */
+    public function logoutOtherDevices(User $user): void
+    {
+        $accessToken = $user->token();
+        $currentId = $accessToken instanceof AccessToken ? ($accessToken->toArray()['oauth_access_token_id'] ?? null) : null;
+        DB::transaction(function () use ($user, $currentId): void {
+            $tokens = $user->tokens()->when($currentId !== null, fn ($query) => $query->whereKeyNot($currentId));
+            $ids = $tokens->pluck('id');
+            if ($ids->isNotEmpty()) {
+                RefreshToken::query()->whereIn('access_token_id', $ids)->update(['revoked' => true]);
+                $tokens->update(['revoked' => true]);
+            }
+            UserDevice::query()->where('user_id', $user->getKey())->update(['push_token' => null]);
+        });
+    }
+
     /**
      * @param  array<string, string>  $params
      * @return array{access_token: string, refresh_token: string, token_type: string, expires_in: int}

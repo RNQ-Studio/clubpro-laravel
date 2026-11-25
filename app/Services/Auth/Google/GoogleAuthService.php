@@ -4,6 +4,7 @@ namespace App\Services\Auth\Google;
 
 use App\Models\User;
 use App\Services\Auth\AuthService;
+use App\Services\Auth\PinReauthenticationService;
 use App\Services\UserActivityService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
@@ -40,6 +41,7 @@ class GoogleAuthService
         }
 
         $tokens = $this->authService->issueTokenForUser($user);
+        app(PinReauthenticationService::class)->rememberGoogle($user, $tokens['access_token']);
         $this->activity->recordLogin($user, $deviceInfo);
 
         return [...$tokens, 'is_new_user' => $isNew, 'email_verified' => $user->hasVerifiedEmail()];

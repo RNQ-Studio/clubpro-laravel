@@ -9,9 +9,14 @@ class SensitiveMailGuard
 {
     public function assertAvailable(): void
     {
-        if (app()->environment('production') && ! $this->isDeliverable((string) config('mail.default'), [])) {
+        if (! $this->isAvailable()) {
             throw new HttpException(503, 'Pengiriman email belum tersedia. Coba lagi nanti.');
         }
+    }
+
+    public function isAvailable(): bool
+    {
+        return ! app()->environment('production') || $this->isDeliverable((string) config('mail.default'), []);
     }
 
     /** @param list<string> $visited */

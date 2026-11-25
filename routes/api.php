@@ -72,6 +72,7 @@ Route::prefix('v1')->group(function (): void {
     });
 
     Route::prefix('auth')->group(function (): void {
+        Route::get('pin/options', [PinController::class, 'options'])->middleware('throttle:60,1');
         Route::post('pin/login', [PinController::class, 'login'])->middleware(['throttle:60,1', 'check.maintenance']);
         Route::post('pin/recovery', [PinController::class, 'recovery'])->middleware(['throttle:6,1', 'check.maintenance']);
         Route::post('pin/reset', [PinController::class, 'reset'])->middleware(['throttle:30,1', 'check.maintenance']);

@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\User;
+use App\Services\Auth\PinReauthenticationService;
 use App\Services\MemberProfileService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -22,6 +23,7 @@ class UserResource extends JsonResource
         return [
             'id' => $this->id,
             'pin_enabled' => $this->pin_hash !== null,
+            'pin_google_reauthenticated' => app(PinReauthenticationService::class)->hasGoogle($this->resource, $request->bearerToken()),
             'name' => $this->name,
             'email' => $this->email,
             'phone' => $this->phone,

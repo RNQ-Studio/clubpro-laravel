@@ -43,21 +43,40 @@ class PinService
         return [...$tokens, 'email_verified' => $user->hasVerifiedEmail()];
     }
 
-    public function change(User $user, #[\SensitiveParameter] string $pin, #[\SensitiveParameter] ?string $currentPin, #[\SensitiveParameter] ?string $password, string $ip): void
+    public function change(User $user, #[\SensitiveParameter] string $pin, #[\SensitiveParameter] ?string $currentPin, #[\SensitiveParameter] ?string $password, string $ip, #[\SensitiveParameter] ?string $bearerToken = null, ?string $verificationMethod = null, bool $useRecentGoogleAuth = false): void
     {
         $key = $this->limit('change:'.$user->getKey(), $ip);
-        $verified = $user->email_verified_at !== null || $user->phone_verified_at !== null;
-        $valid = $user->pin_hash !== null
-            ? Hash::check($currentPin ?? '', $user->pin_hash)
-            : ($verified && Hash::check($password ?? '', $user->password));
+        $method = $verificationMethod ?? ($currentPin !== null ? 'pin' : ($password !== null ? 'password' : ($useRecentGoogleAuth ? 'google' : 'pin')));
+        $valid = DB::transaction(function () use ($user, $pin, $currentPin, $password, $bearerToken, $method): bool {
+            $locked = User::query()->whereKey($user->getKey())->lockForUpdate()->firstOrFail();
+            $verified = $locked->email_verified_at !== null || $locked->phone_verified_at !== null;
+            $proofs = app(PinReauthenticationService::class);
+            $valid = $locked->is_active && match ($method) {
+                'pin' => $locked->pin_hash !== null && Hash::check($currentPin ?? '', $locked->pin_hash),
+                'password' => $verified && Hash::check($password ?? '', $locked->password),
+                'google' => $proofs->consumeGoogle($locked, $bearerToken),
+                default => false,
+            };
+            if (! $valid) {
+                return false;
+            }
+            $locked->forceFill(['pin_hash' => Hash::make($pin)])->save();
+            DB::table('pin_recoveries')->where('user_id', $locked->getKey())->update(['used_at' => now()]);
+            $proofs->forgetGoogle($locked, $bearerToken);
+            if ($method !== 'pin') {
+                // The request user retains Passport's current token attachment.
+                $this->auth->logoutOtherDevices($user);
+            }
+            $this->audit($locked, $method === 'pin' ? 'pin_changed' : 'pin_reset_reauthenticated');
+
+            return true;
+        });
         if (! $valid) {
             RateLimiter::hit($key, 900);
-            throw ValidationException::withMessages(['current_pin' => ['Verifikasi tidak sesuai. Gunakan pemulihan PIN bila diperlukan.']]);
+            throw ValidationException::withMessages(['current_pin' => ['Verifikasi tidak sesuai atau sudah kedaluwarsa. Masuk kembali dengan Google atau gunakan password akun.']]);
         }
         RateLimiter::clear($key);
-        $user->forceFill(['pin_hash' => Hash::make($pin)])->save();
-        DB::table('pin_recoveries')->where('user_id', $user->getKey())->update(['used_at' => now()]);
-        $this->audit($user, 'pin_changed');
+        $user->refresh();
     }
 
     public function recover(string $identifier): void
