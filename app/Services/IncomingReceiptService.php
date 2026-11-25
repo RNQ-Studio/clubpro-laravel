@@ -92,8 +92,10 @@ class IncomingReceiptService
         $reference = $this->normalizeReference($bankReference);
         try {
             return DB::transaction(function () use ($actor, $receipt, $verifiedAmount, $reference, $key, $allocations, $note): IncomingReceipt {
+                $snapshot = IncomingReceipt::query()->findOrFail($receipt->id);
+                $community = $snapshot->community_id === null ? null : Community::query()->lockForUpdate()->findOrFail($snapshot->community_id);
                 $receipt = IncomingReceipt::query()->lockForUpdate()->findOrFail($receipt->id);
-                $community = $receipt->community_id === null ? null : Community::query()->lockForUpdate()->findOrFail($receipt->community_id);
+                abort_if($receipt->community_id !== $snapshot->community_id, 409, 'Konteks penerimaan berubah. Muat ulang.');
                 $this->assertReviewer($actor, $community, $receipt->purpose);
                 if ($receipt->status === 'verified') {
                     abort_unless($receipt->verified_amount === $verifiedAmount && $receipt->verified_reference === $reference && $receipt->review_note === $note, 409, 'Pembayaran sudah diverifikasi dengan data berbeda.');
@@ -129,8 +131,11 @@ class IncomingReceiptService
         abort_if(trim($note) === '', 422, 'Alasan penolakan wajib diisi.');
 
         return DB::transaction(function () use ($actor, $receipt, $note): IncomingReceipt {
+            $snapshot = IncomingReceipt::query()->findOrFail($receipt->id);
+            $community = $snapshot->community_id === null ? null : Community::query()->lockForUpdate()->findOrFail($snapshot->community_id);
             $receipt = IncomingReceipt::query()->lockForUpdate()->findOrFail($receipt->id);
-            $this->assertReviewer($actor, $receipt->community_id === null ? null : Community::query()->lockForUpdate()->findOrFail($receipt->community_id), $receipt->purpose);
+            abort_if($receipt->community_id !== $snapshot->community_id, 409, 'Konteks penerimaan berubah. Muat ulang.');
+            $this->assertReviewer($actor, $community, $receipt->purpose);
             if ($receipt->status === 'rejected') {
                 abort_unless($receipt->review_note === $note, 409, 'Penolakan sudah dicatat dengan alasan berbeda.');
 

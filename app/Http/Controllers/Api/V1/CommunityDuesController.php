@@ -229,6 +229,8 @@ class CommunityDuesController extends Controller
         return [
             'configured' => $this->dues->isConfigured($community),
             'monthly_amount' => $community->dues_amount,
+            'period_amount' => $community->dues_amount,
+            'period_months' => $community->dues_period_months,
             'entry_fee' => $community->entry_fee,
             'start_date' => $community->dues_start_date?->toDateString(),
             'due_day' => $community->dues_start_date?->day,

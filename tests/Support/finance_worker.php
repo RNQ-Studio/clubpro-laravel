@@ -1,9 +1,12 @@
 <?php
 
 use App\Models\Community;
+use App\Models\DuesPayment;
 use App\Models\IncomingReceipt;
 use App\Models\LedgerAccount;
 use App\Models\User;
+use App\Services\BillingService;
+use App\Services\DuesService;
 use App\Services\IncomingReceiptService;
 use App\Services\LedgerService;
 use Illuminate\Contracts\Console\Kernel;
@@ -36,6 +39,12 @@ try {
     if ($input['operation'] === 'approve') {
         $receipt = app(IncomingReceiptService::class)->verify($actor, IncomingReceipt::query()->findOrFail($input['receipt_id']), 100000, 'RACE-RECEIPT', $input['key']);
         $result = ['status' => 200, 'journal_id' => $receipt->journal_id];
+    } elseif ($input['operation'] === 'legacy_approve') {
+        $payment = app(DuesService::class)->approve($actor, DuesPayment::query()->findOrFail($input['payment_id']), 50000, 'LEGACY-PERIOD-RACE');
+        $result = ['status' => 200, 'payment_status' => $payment->status->value];
+    } elseif ($input['operation'] === 'period_settings') {
+        app(BillingService::class)->settings($actor, Community::query()->findOrFail($input['community_id']), ['dues_period_months' => 2, 'dues_amount' => 70000]);
+        $result = ['status' => 200];
     } else {
         $journal = app(LedgerService::class)->transfer($actor, $input['key'], 'concurrency_debit', LedgerAccount::query()->findOrFail($input['from_id']), LedgerAccount::query()->findOrFail($input['to_id']), 70000, Community::query()->findOrFail($input['community_id']));
         $result = ['status' => 200, 'journal_id' => $journal->id];

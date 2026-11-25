@@ -34,6 +34,9 @@ class BillingService
         $key = 'member:'.$member->community_id.':'.$identity;
         $existing = BillingSubject::query()->where('subject_key', $key)->first();
         if ($existing !== null) {
+            if ($member->merged_into_member_id === null && $member->billing_scheme !== $existing->scheme) {
+                $member->forceFill(['billing_scheme' => $existing->scheme])->save();
+            }
             if ($existing->member_id !== $member->id && $member->merged_into_member_id === null) {
                 $existing->update(['member_id' => $member->id]);
             }
@@ -58,6 +61,9 @@ class BillingService
                 'trial_start' => $legacy ? null : $start->toDateString(), 'trial_end' => $trialEnd?->toDateString(),
                 'anchor_date' => $anchor->toDateString(), 'due_day' => $legacy ? ($community->dues_start_date === null ? 1 : $community->dues_start_date->day) : null,
             ]);
+            if ($member->merged_into_member_id === null && $member->billing_scheme !== $subject->scheme) {
+                $member->forceFill(['billing_scheme' => $subject->scheme])->save();
+            }
             if ($autoActivate && $member->status === CommunityMemberStatus::Pending && $member->joined_at === null && $trialEnd->greaterThan($this->today())) {
                 $member->update(['status' => CommunityMemberStatus::Active, 'joined_at' => now()]);
             }
@@ -104,21 +110,21 @@ class BillingService
         $this->refresh($subject);
     }
 
-    public function refresh(BillingSubject $subject, bool $renew = false): BillingSubject
+    public function refresh(BillingSubject $subject, bool $renew = false, ?CarbonImmutable $through = null): BillingSubject
     {
-        return DB::transaction(function () use ($subject, $renew): BillingSubject {
+        return DB::transaction(function () use ($subject, $renew, $through): BillingSubject {
             $subject = BillingSubject::query()->whereKey($subject->id)->lockForUpdate()->firstOrFail();
             if ($subject->merged_into_subject_id !== null) {
-                return $this->refresh(BillingSubject::query()->findOrFail($subject->merged_into_subject_id), $renew);
+                return $this->refresh(BillingSubject::query()->findOrFail($subject->merged_into_subject_id), $renew, $through);
             }
             $community = Community::query()->findOrFail($subject->community_id);
             $member = $subject->member_id === null ? null : CommunityMember::query()->findOrFail($subject->member_id);
             if ($subject->archived_at !== null || $member?->status === CommunityMemberStatus::Archived) {
                 return $subject;
             }
-            $this->restoreLegacyApproved($subject, $community, $member);
+            $this->restoreLegacyRows($subject, $community, $member);
             $legacyEntryPayment = $subject->scheme === 'legacy_calendar' && $member?->user_id !== null ? DuesPayment::query()->where('community_id', $community->id)->where('user_id', $member->user_id)->whereIn('status', ['pending', 'approved'])->where('entry_fee', '>', 0)->oldest('id')->first() : null;
-            $today = $this->today();
+            $today = $through ?? $this->today();
             if ($renew) {
                 $today = $this->date($subject->anchor_date)->addMonthsNoOverflow($subject->next_offset);
             }
@@ -368,7 +374,7 @@ class BillingService
             if ($invoice->kind === 'entry') {
                 $member->forceFill(['entry_fee_paid_at' => now()])->save();
             } elseif ($invoice->legacy_month !== null && $member->user_id !== null) {
-                DuesMonth::query()->updateOrCreate(['community_id' => $member->community_id, 'user_id' => $member->user_id, 'month' => $invoice->legacy_month.'-01'], ['status' => DuesMonthStatus::Paid, 'updated_by' => $actor]);
+                $member->community->duesMonths()->updateOrCreate(['user_id' => $member->user_id, 'month' => $invoice->legacy_month.'-01'], ['status' => DuesMonthStatus::Paid, 'updated_by' => $actor]);
             }
         }
     }
@@ -388,12 +394,88 @@ class BillingService
         abort_unless($actor->can('configureDues', $community), 403);
         DB::transaction(function () use ($actor, $community, $data): void {
             Community::query()->whereKey($community->id)->lockForUpdate()->firstOrFail();
+            $community->refresh();
+            $period = (int) ($data['dues_period_months'] ?? $community->dues_period_months);
+            $transition = [];
             foreach ($community->members()->whereNull('merged_into_member_id')->get() as $member) {
-                $this->refresh($this->memberSubject($member));
+                $subject = $this->refresh($this->memberSubject($member));
+                if ($period > 1 && $subject->scheme === 'legacy_calendar' && $subject->archived_at === null && $member->status !== CommunityMemberStatus::Archived) {
+                    // Freeze the old price as well as the old monthly periods before saving new settings.
+                    $transition[] = $this->freezeLegacyCommitments($subject, $community, $member);
+                }
             }
             $community->forceFill($data)->save();
-            activity('billing')->causedBy($actor)->performedOn($community)->event('billing_settings_updated')->withProperties(['effective' => 'next_period', 'settings' => $data])->log('billing_settings_updated');
+            foreach ($transition as $subject) {
+                $this->convertLegacyPeriod($subject, $community, $actor);
+            }
+            activity('billing')->causedBy($actor)->performedOn($community)->event('billing_settings_updated')->withProperties(['effective' => 'next_unissued_period', 'settings' => $data])->log('billing_settings_updated');
         });
+    }
+
+    /** Idempotent repair for communities already configured with a multi-month period before this fix. */
+    public function transitionLegacyPeriods(Community $community, ?User $actor = null): void
+    {
+        DB::transaction(function () use ($community, $actor): void {
+            Community::query()->whereKey($community->id)->lockForUpdate()->firstOrFail();
+            $community->refresh();
+            if ($community->dues_period_months <= 1) {
+                return;
+            }
+            foreach ($community->members()->whereNull('merged_into_member_id')->get() as $member) {
+                $subject = $this->memberSubject($member);
+                if ($subject->scheme !== 'legacy_calendar' || $subject->archived_at !== null || $member->status === CommunityMemberStatus::Archived) {
+                    continue;
+                }
+                $subject = $this->freezeLegacyCommitments($subject, $community, $member);
+                $this->convertLegacyPeriod($subject, $community, $actor);
+            }
+        }, 3);
+    }
+
+    private function freezeLegacyCommitments(BillingSubject $subject, Community $community, CommunityMember $member): BillingSubject
+    {
+        $subject = $this->refresh($subject);
+        $lastMonth = $member->user_id === null ? null : DuesMonth::query()->where('community_id', $community->id)->where('user_id', $member->user_id)->whereIn('status', [DuesMonthStatus::Paid, DuesMonthStatus::Pending])->max('month');
+        $lastEnd = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($subject))->where('kind', 'member')->where('status', '!=', 'void')->max('period_end');
+        $through = $this->today();
+        if ($lastMonth !== null) {
+            $month = $this->date($lastMonth)->startOfMonth();
+            $dueDay = $subject->due_day ?? 1;
+            $start = $month->setDay(min($dueDay, $month->daysInMonth))->addDay();
+            if ($start->greaterThan($through)) {
+                $through = $start;
+            }
+        }
+        if ($lastEnd !== null && $this->date($lastEnd)->subDay()->greaterThan($through)) {
+            $through = $this->date($lastEnd)->subDay();
+        }
+
+        return $this->refresh($subject, false, $through);
+    }
+
+    private function convertLegacyPeriod(BillingSubject $subject, Community $community, ?User $actor): void
+    {
+        $subject = BillingSubject::query()->whereKey($subject->id)->lockForUpdate()->firstOrFail();
+        if ($subject->scheme !== 'legacy_calendar') {
+            return;
+        }
+        $oldAnchor = $subject->anchor_date->toDateString();
+        $nextMonth = $this->date($subject->anchor_date)->startOfMonth()->addMonths($subject->next_offset);
+        $dueDay = $subject->due_day ?? 1;
+        $anchor = $nextMonth->setDay(min($dueDay, $nextMonth->daysInMonth))->addDay();
+        $lastEnd = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($subject))->where('kind', 'member')->where('status', '!=', 'void')->max('period_end');
+        if ($lastEnd !== null && $this->date($lastEnd)->greaterThan($anchor)) {
+            $anchor = $this->date($lastEnd);
+        }
+        $subject->update(['scheme' => 'anniversary', 'anchor_date' => $anchor->toDateString(), 'next_offset' => 0]);
+        if ($subject->member_id !== null) {
+            CommunityMember::query()->whereKey($subject->member_id)->update(['billing_scheme' => 'anniversary']);
+        }
+        $log = activity('billing')->performedOn($community)->event('billing_period_transition')->withProperties(['subject_id' => $subject->id, 'old_scheme' => 'legacy_calendar', 'new_scheme' => 'anniversary', 'old_anchor' => $oldAnchor, 'new_anchor' => $anchor->toDateString(), 'period_months' => $community->dues_period_months, 'effective' => 'next_unissued_period', 'preserved_legacy_invoices' => true]);
+        if ($actor !== null) {
+            $log->causedBy($actor);
+        }
+        $log->log('billing_period_transition');
     }
 
     /** @return array<string, mixed> */
@@ -545,19 +627,19 @@ class BillingService
         }
     }
 
-    private function restoreLegacyApproved(BillingSubject $subject, Community $community, ?CommunityMember $member): void
+    private function restoreLegacyRows(BillingSubject $subject, Community $community, ?CommunityMember $member): void
     {
         if ($subject->scheme !== 'legacy_calendar' || $member?->user_id === null) {
             return;
         }
-        foreach (DuesPayment::query()->where('community_id', $community->id)->where('user_id', $member->user_id)->where('status', 'approved')->get() as $payment) {
+        foreach (DuesPayment::query()->where('community_id', $community->id)->where('user_id', $member->user_id)->whereIn('status', ['pending', 'approved'])->get() as $payment) {
             foreach ($payment->months as $month) {
                 if (! preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $month)) {
                     continue;
                 }
-                $community->duesMonths()->firstOrCreate(['user_id' => $member->user_id, 'month' => $month.'-01'], ['status' => DuesMonthStatus::Paid, 'dues_payment_id' => $payment->id, 'updated_by' => $payment->reviewed_by]);
+                $community->duesMonths()->firstOrCreate(['user_id' => $member->user_id, 'month' => $month.'-01'], ['status' => $payment->status === DuesPaymentStatus::Approved ? DuesMonthStatus::Paid : DuesMonthStatus::Pending, 'dues_payment_id' => $payment->id, 'updated_by' => $payment->reviewed_by]);
             }
-            if ($payment->entry_fee > 0 && $member->entry_fee_paid_at === null) {
+            if ($payment->status === DuesPaymentStatus::Approved && $payment->entry_fee > 0 && $member->entry_fee_paid_at === null) {
                 $member->forceFill(['entry_fee_paid_at' => $payment->reviewed_at ?? $payment->created_at ?? now()])->save();
             }
         }

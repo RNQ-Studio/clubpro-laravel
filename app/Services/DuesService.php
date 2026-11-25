@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Asset;
 use App\Models\BillingInvoice;
+use App\Models\BillingSubject;
 use App\Models\Community;
 use App\Models\CommunityMember;
 use App\Models\DuesMonth;
@@ -89,13 +90,25 @@ class DuesService
      * Ringkasan iuran satu anggota beserta kalender [year].
      *
      * @param  array<string, DuesMonthStatus>|null  $rows  bulan tersimpan; null = dimuat di sini
-     * @return array{billable_from: string|null, arrears_count: int, paid_until: string|null, entry_fee_paid: bool, months: list<array{month: string, status: string}>}
+     * @return array{billable_from: string|null, arrears_count: int, paid_until: string|null, entry_fee_paid: bool, months: list<array{month: string, status: string}>, billing_scheme?: string, calendar_read_only?: bool, calendar_label?: string, billing?: array<string, mixed>}
      */
     public function memberCalendar(Community $community, int $userId, ?CommunityMember $member, int $year, ?array $rows = null): array
     {
         $rows ??= $this->rowsOf($community, [$userId])[$userId] ?? [];
         $from = $this->billableFrom($community, $member);
         $today = $this->today();
+        if ($member !== null && $member->billing_scheme === 'anniversary') {
+            $billing = app(BillingService::class);
+            $subject = $billing->memberSubject($member);
+            $entitlement = $billing->entitlement($subject);
+            $months = [];
+            for ($m = 1; $m <= 12; $m++) {
+                $month = sprintf('%04d-%02d', $year, $m);
+                $months[] = ['month' => $month, 'status' => ($rows[$month] ?? DuesMonthStatus::None)->value];
+            }
+
+            return ['billable_from' => $from?->format('Y-m'), 'arrears_count' => BillingInvoice::query()->whereIn('subject_id', [$subject->id, ...BillingSubject::query()->where('merged_into_subject_id', $subject->id)->pluck('id')->all()])->whereIn('status', ['open', 'partially_paid'])->where('kind', 'member')->whereDate('period_start', '<=', $today->toDateString())->count(), 'paid_until' => null, 'entry_fee_paid' => $member->entry_fee_paid_at !== null, 'months' => $months, 'billing_scheme' => 'anniversary', 'calendar_read_only' => true, 'calendar_label' => 'Riwayat kalender lama; masa aktif mengikuti periode pembayaran.', 'billing' => $entitlement];
+        }
 
         $months = [];
         for ($m = 1; $m <= 12; $m++) {
@@ -121,6 +134,9 @@ class DuesService
      */
     public function nextUnpaidMonths(Community $community, int $userId, ?CommunityMember $member, int $limit = self::MAX_MONTHS_PER_PAYMENT): array
     {
+        if ($member?->billing_scheme === 'anniversary') {
+            return [];
+        }
         $from = $this->billableFrom($community, $member);
         if ($from === null) {
             return [];
@@ -184,6 +200,12 @@ class DuesService
     /** Uang masuk yang masih harus dibayar [member]: 0 bila lunas atau sedang diajukan. */
     public function entryFeeDue(Community $community, CommunityMember $member): int
     {
+        if ($member->billing_scheme === 'anniversary') {
+            $billing = app(BillingService::class);
+            $subject = $billing->refresh($billing->memberSubject($member));
+
+            return (int) BillingInvoice::query()->whereIn('subject_id', [$subject->id, ...BillingSubject::query()->where('merged_into_subject_id', $subject->id)->pluck('id')->all()])->where('kind', 'entry')->whereIn('status', ['open', 'partially_paid'])->sum(DB::raw('amount - paid_amount'));
+        }
         if ($community->entry_fee <= 0 || $member->entry_fee_paid_at !== null) {
             return 0;
         }
@@ -214,6 +236,7 @@ class DuesService
 
         try {
             return DB::transaction(function () use ($payer, $community, $monthsCount, $proofAssetId, $note): DuesPayment {
+                $community = Community::query()->whereKey($community->id)->lockForUpdate()->firstOrFail();
                 // Satu pengajuan per anggota pada satu waktu: bulan yang dipilih tidak berubah di tengah jalan.
                 $member = CommunityMember::query()
                     ->where('community_id', $community->getKey())
@@ -225,7 +248,8 @@ class DuesService
                     $this->reject('months_count', 'Hanya anggota komunitas ini yang bisa membayar iuran.');
                 }
 
-                if ($member->billing_scheme !== 'legacy_calendar') {
+                $subject = app(BillingService::class)->memberSubject($member);
+                if ($subject->scheme !== 'legacy_calendar') {
                     $this->reject('months_count', 'Gunakan menu Pembayaran keanggotaan untuk tagihan berdasarkan masa aktif.');
                 }
                 $months = $this->nextUnpaidMonths($community, (int) $payer->getKey(), $member, $monthsCount);
@@ -269,7 +293,10 @@ class DuesService
     public function approve(User $actor, DuesPayment $payment, ?int $verifiedAmount = null, ?string $bankReference = null): DuesPayment
     {
         DB::transaction(function () use ($actor, $payment, $verifiedAmount, $bankReference): void {
+            $snapshot = DuesPayment::query()->findOrFail($payment->id);
+            Community::query()->whereKey($snapshot->community_id)->lockForUpdate()->firstOrFail();
             $payment = DuesPayment::query()->whereKey($payment->id)->lockForUpdate()->firstOrFail();
+            abort_if($payment->community_id !== $snapshot->community_id, 409, 'Konteks pembayaran berubah. Muat ulang.');
             abort_unless($payment->status === DuesPaymentStatus::Pending, 409, 'Pembayaran ini sudah diverifikasi.');
             abort_if($verifiedAmount === null || $bankReference === null, 422, 'Masukkan nominal terverifikasi dan referensi bank melalui formulir pembayaran.');
             $community = $payment->community;
@@ -310,7 +337,7 @@ class DuesService
                 $this->markReviewed($actor, $payment, DuesPaymentStatus::Approved, null);
                 DuesMonth::query()->where('dues_payment_id', $payment->id)->update(['status' => DuesMonthStatus::Paid, 'updated_by' => $actor->id, 'updated_at' => now()]);
             }
-        });
+        }, 3);
         $this->log($actor, $payment->community, 'dues_payment_approved', ['payment_id' => $payment->id, 'verified_amount' => $verifiedAmount]);
 
         return $payment->refresh();
@@ -320,6 +347,10 @@ class DuesService
     public function rejectPayment(User $actor, DuesPayment $payment, string $note): DuesPayment
     {
         DB::transaction(function () use ($actor, $payment, $note): void {
+            $snapshot = DuesPayment::query()->findOrFail($payment->id);
+            Community::query()->whereKey($snapshot->community_id)->lockForUpdate()->firstOrFail();
+            $payment = DuesPayment::query()->whereKey($payment->id)->lockForUpdate()->firstOrFail();
+            abort_if($payment->community_id !== $snapshot->community_id, 409, 'Konteks pembayaran berubah. Muat ulang.');
             $receipt = app(IncomingReceiptService::class)->registerLegacyProof($payment);
             abort_if($receipt->journal_id !== null, 409, 'Pembayaran sudah diterima sebagian. Lunasi sisa melalui menu pembayaran; uang yang sah tidak dibatalkan.');
             $receipt->forceFill(['status' => 'rejected', 'reviewed_by' => $actor->id, 'reviewed_at' => now(), 'review_note' => $note])->save();
@@ -329,7 +360,7 @@ class DuesService
                 ->where('dues_payment_id', $payment->getKey())
                 ->where('status', DuesMonthStatus::Pending)
                 ->delete();
-        });
+        }, 3);
 
         $this->log($actor, $payment->community, 'dues_payment_rejected', ['payment_id' => $payment->getKey(), 'user_id' => $payment->user_id, 'note' => $note]);
 

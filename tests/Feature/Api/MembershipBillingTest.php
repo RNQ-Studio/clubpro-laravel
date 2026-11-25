@@ -30,6 +30,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
+use Spatie\Activitylog\Models\Activity;
 use Tests\TestCase;
 
 class MembershipBillingTest extends TestCase
@@ -483,6 +484,131 @@ class MembershipBillingTest extends TestCase
         $billing->refresh($subject);
         $this->assertSame(50000, $monthly->refresh()->amount);
         $this->assertSame(10000, $entry->refresh()->amount);
+    }
+
+    public function test_legacy_period_change_uses_two_month_price_next_without_rewriting_current_invoice_or_card(): void
+    {
+        $this->community->forceFill(['dues_start_date' => '2026-01-10'])->save();
+        $user = User::factory()->create();
+        $member = CommunityMember::factory()->for($this->community)->for($user)->create(['billing_scheme' => 'legacy_calendar', 'joined_at' => '2026-01-01', 'entry_fee_paid_at' => now()]);
+        $billing = app(BillingService::class);
+        $subject = $billing->refresh($billing->memberSubject($member));
+        $current = BillingInvoice::query()->where('subject_id', $subject->id)->where('kind', 'member')->firstOrFail();
+        $snapshot = $current->getRawOriginal();
+        Passport::actingAs($this->founder);
+        $this->patchJson($this->url('/settings'), ['dues_amount' => 50000, 'entry_fee' => 10000, 'period_months' => 2, 'dues_bank_name' => 'Bank Fixture', 'dues_account_number' => '1234567890', 'dues_account_name' => 'Komunitas Fixture'])->assertOk();
+        $this->assertSame('anniversary', $subject->refresh()->scheme);
+        $this->assertSame('2026-02-11', $subject->anchor_date->toDateString());
+        $this->assertSame('anniversary', $member->refresh()->billing_scheme);
+        $this->assertSame($snapshot, $current->refresh()->getRawOriginal());
+        $this->fund($user, 200000);
+        Passport::actingAs($user);
+        $this->postJson($this->url('/pay'), ['scope' => 'member', 'invoice_ids' => [$current->id], 'expected_amount' => 50000, 'idempotency_key' => (string) Str::uuid()])->assertOk()->assertJsonPath('data.entitlement.active', true)->assertJsonPath('data.entitlement.valid_until', '2026-02-11')->assertJsonPath('data.settings.period_months', 2);
+        $this->travelTo(Carbon::parse('2026-02-11 12:00:00', 'Asia/Jakarta'));
+        $data = $this->getJson($this->url())->assertOk()->json('data');
+        $next = BillingInvoice::query()->where('subject_id', $subject->id)->whereDate('period_start', '2026-02-11')->firstOrFail();
+        $this->assertSame(50000, $next->amount);
+        $this->assertSame(2, $next->snapshot['period_months']);
+        $this->assertSame('2026-04-11', $next->period_end->toDateString());
+        $this->postJson($this->url('/pay'), ['scope' => 'member', 'invoice_ids' => [$next->id], 'expected_amount' => 50000, 'idempotency_key' => (string) Str::uuid()])->assertOk()->assertJsonPath('data.entitlement.valid_until', '2026-04-11');
+        $this->getJson('/api/v1/communities/'.$this->community->id.'/card')->assertOk()->assertJsonPath('data.validity.valid_until', '2026-04-10')->assertJsonPath('data.entitlement.valid_until', '2026-04-11');
+        $this->getJson('/api/v1/communities/'.$this->community->id.'/dues')->assertOk()->assertJsonPath('data.me.arrears_count', 0)->assertJsonPath('data.me.calendar_read_only', true)->assertJsonPath('data.me.billing.state', 'active')->assertJsonPath('data.me.billing.valid_until', '2026-04-11')->assertJsonPath('data.me.next_unpaid_months', [])->assertJsonPath('data.settings.period_months', 2);
+        $this->assertSame(100000, app(LedgerService::class)->wallet($user)['available']);
+        $this->assertSame(100000, app(LedgerService::class)->communityAccount($this->community)->balance);
+    }
+
+    public function test_period_transition_preserves_pending_and_sparse_future_paid_commitments_and_actual_approval(): void
+    {
+        $this->community->forceFill(['dues_start_date' => '2026-01-10'])->save();
+        $user = User::factory()->create();
+        $member = CommunityMember::factory()->for($this->community)->for($user)->create(['billing_scheme' => 'legacy_calendar', 'joined_at' => '2026-01-01']);
+        $proof = Asset::factory()->create(['user_id' => $user->id, 'size' => 1000]);
+        Storage::disk('gcs')->put($proof->path, 'period-change-'.$proof->id);
+        $payment = app(DuesService::class)->submitPayment($user, $this->community, 3, $proof->id, 'Pembayaran Januari sampai Maret');
+        DuesMonth::query()->forceCreate(['community_id' => $this->community->id, 'user_id' => $user->id, 'month' => '2026-05-01', 'status' => 'paid']);
+        $paymentSnapshot = $payment->refresh()->getRawOriginal();
+        $billing = app(BillingService::class);
+        $subject = $billing->memberSubject($member);
+        $billing->settings($this->founder, $this->community, ['dues_amount' => 70000, 'entry_fee' => 20000, 'dues_period_months' => 2]);
+        $this->assertSame('2026-06-11', $subject->refresh()->anchor_date->toDateString());
+        $this->assertSame($paymentSnapshot, $payment->refresh()->getRawOriginal());
+        $legacyInvoices = BillingInvoice::query()->where('subject_id', $subject->id)->where('kind', 'member')->orderBy('period_start')->get();
+        $this->assertCount(5, $legacyInvoices);
+        $ids = $legacyInvoices->pluck('id')->all();
+        $this->assertSame([50000, 50000, 50000, 50000, 0], $legacyInvoices->pluck('amount')->all());
+        $this->assertSame('paid', $legacyInvoices[4]->status);
+        $this->assertTrue($legacyInvoices[4]->snapshot['legacy_nominal_unrecorded']);
+        $entry = BillingInvoice::query()->where('subject_id', $subject->id)->where('kind', 'entry')->firstOrFail();
+        $this->assertSame(10000, $entry->amount);
+        app(DuesService::class)->approve($this->founder, $payment, 160000, 'PENDING-PERIOD-REAL');
+        $this->assertSame('approved', $payment->refresh()->status->value);
+        $this->assertSame($ids, BillingInvoice::query()->where('subject_id', $subject->id)->where('kind', 'member')->orderBy('period_start')->pluck('id')->all());
+        $this->assertSame(160000, app(LedgerService::class)->communityAccount($this->community)->balance);
+        $this->assertDatabaseHas('dues_months', ['user_id' => $user->id, 'month' => '2026-03-01', 'status' => 'paid', 'dues_payment_id' => $payment->id]);
+        $this->assertSame('2026-04-11', $billing->entitlement($subject)['valid_until']);
+        $this->travelTo(Carbon::parse('2026-06-11 12:00:00', 'Asia/Jakarta'));
+        $billing->refresh($subject);
+        $next = BillingInvoice::query()->where('subject_id', $subject->id)->whereDate('period_start', '2026-06-11')->firstOrFail();
+        $this->assertSame(70000, $next->amount);
+        $this->assertSame(2, $next->snapshot['period_months']);
+        $this->assertSame('2026-08-11', $next->period_end->toDateString());
+        $this->assertSame('2026-05', $legacyInvoices[4]->legacy_month);
+        $this->assertDatabaseCount('ledger_journals', 1);
+    }
+
+    public function test_new_period_data_fix_migration_is_idempotent_preserves_paid_and_skips_archived_members(): void
+    {
+        $this->community->forceFill(['dues_start_date' => '2026-01-31', 'dues_period_months' => 2])->save();
+        $user = User::factory()->create();
+        $member = CommunityMember::factory()->for($this->community)->for($user)->create(['billing_scheme' => 'legacy_calendar', 'joined_at' => '2026-01-01', 'entry_fee_paid_at' => now()]);
+        DuesMonth::query()->forceCreate(['community_id' => $this->community->id, 'user_id' => $user->id, 'month' => '2026-02-01', 'status' => 'paid']);
+        $archived = CommunityMember::factory()->for($this->community)->create(['billing_scheme' => 'legacy_calendar', 'status' => 'archived']);
+        $migration = require database_path('migrations/2026_11_26_040002_transition_legacy_billing_periods.php');
+        $migration->up();
+        $billing = app(BillingService::class);
+        $subject = $billing->memberSubject($member->refresh());
+        $this->assertSame('anniversary', $subject->scheme);
+        $this->assertSame('2026-04-01', $subject->anchor_date->toDateString());
+        $before = BillingInvoice::query()->where('subject_id', $subject->id)->orderBy('period_start')->get()->map->getRawOriginal()->all();
+        $this->assertCount(2, $before);
+        $migration->up();
+        $this->assertSame($before, BillingInvoice::query()->where('subject_id', $subject->id)->orderBy('period_start')->get()->map->getRawOriginal()->all());
+        $this->assertSame(1, Activity::query()->where('event', 'billing_period_transition')->where('properties->subject_id', $subject->id)->count());
+        $archivedSubject = $billing->memberSubject($archived);
+        $this->assertSame('legacy_calendar', $archivedSubject->scheme);
+        $this->assertSame('archived', $archived->refresh()->status->value);
+        $this->assertSame(0, BillingInvoice::query()->where('subject_id', $archivedSubject->id)->count());
+        $this->assertDatabaseCount('ledger_journals', 0);
+        $this->travelTo(Carbon::parse('2026-04-01 12:00:00', 'Asia/Jakarta'));
+        $billing->refresh($subject);
+        $next = BillingInvoice::query()->where('subject_id', $subject->id)->whereDate('period_start', '2026-04-01')->firstOrFail();
+        $this->assertSame('2026-06-01', $next->period_end->toDateString());
+        $this->assertSame(50000, $next->amount);
+    }
+
+    public function test_cutover_trial_canonical_scheme_blocks_old_monthly_submit_and_repairs_deployed_member_flag(): void
+    {
+        $this->community->forceFill(['billing_cutover_date' => '2026-01-24'])->save();
+        $user = User::factory()->create();
+        $member = CommunityMember::factory()->for($this->community)->for($user)->pending()->create(['billing_scheme' => 'legacy_calendar', 'created_at' => '2025-12-01']);
+        $billing = app(BillingService::class);
+        $subject = $billing->memberSubject($member);
+        $this->assertSame('anniversary', $subject->scheme);
+        $this->assertSame('anniversary', $member->refresh()->billing_scheme);
+        $this->assertSame('active', $member->status->value);
+        // A row created by the previously deployed code may still have the old column value.
+        $member->forceFill(['billing_scheme' => 'legacy_calendar'])->save();
+        $proof = Asset::factory()->create(['user_id' => $user->id, 'size' => 1000]);
+        Storage::disk('gcs')->put($proof->path, 'cutover-no-monthly-'.$proof->id);
+        Passport::actingAs($user);
+        $this->postJson('/api/v1/communities/'.$this->community->id.'/dues/payments', ['months_count' => 1, 'proof_asset_id' => $proof->id])->assertUnprocessable()->assertJsonValidationErrors('months_count');
+        // Failed money requests roll back their metadata writes too; a normal canonical lookup repairs the old flag.
+        $billing->memberSubject($member->refresh());
+        $this->assertSame('anniversary', $member->refresh()->billing_scheme);
+        $this->assertSame('2026-01-31', $subject->refresh()->trial_end->toDateString());
+        $this->assertDatabaseCount('dues_payments', 0);
+        $this->assertDatabaseCount('ledger_journals', 0);
+        $this->getJson($this->url())->assertOk()->assertJsonPath('data.entitlement.state', 'trial')->assertJsonPath('data.entitlement.arrears_amount', 0);
     }
 
     private function fund(User $user, int $amount): void

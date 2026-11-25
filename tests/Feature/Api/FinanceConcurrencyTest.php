@@ -3,12 +3,15 @@
 namespace Tests\Feature\Api;
 
 use App\Models\Asset;
+use App\Models\BillingInvoice;
 use App\Models\Community;
 use App\Models\CommunityMember;
 use App\Models\LedgerAccount;
 use App\Models\LedgerJournal;
 use App\Models\MemberIdentity;
 use App\Models\User;
+use App\Services\BillingService;
+use App\Services\DuesService;
 use App\Services\IncomingReceiptService;
 use App\Services\LedgerService;
 use App\Support\Enums\StorageType;
@@ -62,6 +65,35 @@ class FinanceConcurrencyTest extends TestCase
         $this->assertSame(30000, $source->fresh()->balance);
         $this->assertSame(70000, $receiverOne->fresh()->balance + $receiverTwo->fresh()->balance);
         $this->assertSame(2, LedgerJournal::query()->count());
+        $this->assertTrue(app(LedgerService::class)->reconcile()['balanced']);
+    }
+
+    public function test_legacy_approval_and_period_settings_wait_on_the_same_community_lock_without_deadlock(): void
+    {
+        Storage::fake('local');
+        Storage::fake('gcs');
+        $this->seed(RolePermissionSeeder::class);
+        $founder = User::factory()->create();
+        $community = Community::factory()->approved()->for($founder, 'owner')->create();
+        $community->forceFill(['dues_amount' => 50000, 'entry_fee' => 0, 'dues_start_date' => now('Asia/Jakarta')->startOfMonth()->toDateString(), 'dues_bank_name' => 'Bank Fixture', 'dues_account_number' => '1234567890', 'dues_account_name' => 'Komunitas Fixture'])->save();
+        $payer = User::factory()->create();
+        $member = CommunityMember::factory()->for($community)->for($payer)->create(['billing_scheme' => 'legacy_calendar', 'joined_at' => now('Asia/Jakarta')->startOfMonth()]);
+        $proof = Asset::factory()->create(['user_id' => $payer->id, 'storage_type' => StorageType::Private]);
+        Storage::disk('local')->put($proof->path, 'period-concurrency-fixture:'.Str::uuid());
+        $payment = app(DuesService::class)->submitPayment($payer, $community, 1, $proof->id, 'Bukti sebelum perubahan periode');
+        $subject = app(BillingService::class)->refresh(app(BillingService::class)->memberSubject($member));
+        DB::beginTransaction();
+        Community::query()->whereKey($community->id)->lockForUpdate()->firstOrFail();
+        $results = $this->race(['actor_id' => $founder->id, 'community_id' => $community->id, 'payment_id' => $payment->id], [['operation' => 'legacy_approve'], ['operation' => 'period_settings']]);
+        $this->assertSame([200, 200], array_column($results, 'status'), json_encode($results));
+        $this->assertSame('approved', $payment->refresh()->status->value);
+        $this->assertSame(1, LedgerJournal::query()->count());
+        $this->assertSame(50000, app(LedgerService::class)->communityAccount($community)->balance);
+        $this->assertSame('anniversary', $subject->refresh()->scheme);
+        $this->assertSame(2, $community->refresh()->dues_period_months);
+        $invoice = BillingInvoice::query()->where('subject_id', $subject->id)->where('kind', 'member')->firstOrFail();
+        $this->assertSame(50000, $invoice->amount);
+        $this->assertSame('paid', $invoice->status);
         $this->assertTrue(app(LedgerService::class)->reconcile()['balanced']);
     }
 
