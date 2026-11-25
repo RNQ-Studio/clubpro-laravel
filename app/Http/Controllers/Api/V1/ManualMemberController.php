@@ -57,13 +57,17 @@ class ManualMemberController extends Controller
         $data = $request->validated();
         $invitation = $this->guardians->invite($this->actor($request), $member, $kind, $data['email']);
 
-        return ApiResponse::success(self::invitationData($invitation), 'Undangan dikirim ke email penerima');
+        return ApiResponse::success(self::invitationData($invitation), $invitation->delivery_method === 'in_app'
+            ? 'Undangan tersedia di menu Undangan penerima setelah masuk dengan email terverifikasi'
+            : 'Undangan dikirim ke email penerima');
     }
 
     /** @return array<string, mixed> */
     public static function invitationData(MemberInvitation $invitation): array
     {
         return ['id' => $invitation->id, 'kind' => $invitation->kind, 'email' => $invitation->email,
+            'delivery_method' => $invitation->delivery_method, 'invited_by_name' => $invitation->issuer->name,
+            'community_name' => $invitation->member->community->name,
             'member_name' => $invitation->identity->name, 'status' => 'pending', 'expires_at' => $invitation->expires_at->toIso8601String()];
     }
 

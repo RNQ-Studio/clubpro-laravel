@@ -27,7 +27,7 @@ class GuardianController extends Controller
         if (! $this->actor($request)->hasVerifiedEmail()) {
             throw new AuthorizationException('Verifikasi email untuk melihat undangan.');
         }
-        $invitations = MemberInvitation::query()->with('identity')->where('email', strtolower($this->actor($request)->email))
+        $invitations = MemberInvitation::query()->with(['identity', 'issuer', 'member.community'])->where('email', strtolower($this->actor($request)->email))
             ->whereNull('claimed_at')->whereNull('revoked_at')->where('expires_at', '>', now())->orderByDesc('id')->get();
 
         return ApiResponse::success($invitations->map(fn (MemberInvitation $invite): array => ManualMemberController::invitationData($invite))->all());
@@ -36,7 +36,7 @@ class GuardianController extends Controller
     public function claim(ClaimMemberInvitationRequest $request, MemberInvitation $invitation): JsonResponse
     {
         $data = $request->validated();
-        $identity = $this->guardians->claim($this->actor($request), $invitation, $data['token']);
+        $identity = $this->guardians->claim($this->actor($request), $invitation, $data['token'] ?? null, $data['accept'] ?? false);
 
         return ApiResponse::success($this->guardians->details($identity), 'Hubungan anggota terverifikasi');
     }

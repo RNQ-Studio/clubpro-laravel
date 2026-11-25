@@ -36,22 +36,24 @@ class GuardianService
             $this->members->reject('member', 'Identitas sudah terhubung ke akun.');
         }
         $email = strtolower(trim($email));
-        app(SensitiveMailGuard::class)->assertAvailable();
+        $deliveryMethod = app(SensitiveMailGuard::class)->isAvailable() ? 'email' : 'in_app';
 
-        return DB::transaction(function () use ($actor, $member, $identity, $kind, $email): MemberInvitation {
+        return DB::transaction(function () use ($actor, $member, $identity, $kind, $email, $deliveryMethod): MemberInvitation {
             MemberIdentity::query()->whereKey($identity->id)->lockForUpdate()->firstOrFail();
             MemberInvitation::query()->where('member_identity_id', $identity->id)->where('kind', $kind)
                 ->where('email', $email)->whereNull('claimed_at')->whereNull('revoked_at')->update(['revoked_at' => now()]);
             $token = Str::random(40);
             $invitation = MemberInvitation::query()->create([
                 'member_identity_id' => $identity->id, 'community_member_id' => $member->id,
-                'invited_by' => $actor->getKey(), 'kind' => $kind, 'email' => $email,
+                'invited_by' => $actor->getKey(), 'kind' => $kind, 'email' => $email, 'delivery_method' => $deliveryMethod,
                 'token_hash' => hash('sha256', $token), 'expires_at' => now()->addHours(24),
             ]);
-            try {
-                Mail::to($email)->send(new MemberInvitationMail($invitation, $token));
-            } catch (\Throwable) {
-                throw new HttpException(503, 'Pengiriman undangan belum berhasil. Coba lagi nanti.');
+            if ($deliveryMethod === 'email') {
+                try {
+                    Mail::to($email)->send(new MemberInvitationMail($invitation, $token));
+                } catch (\Throwable) {
+                    throw new HttpException(503, 'Pengiriman undangan belum berhasil. Coba lagi nanti.');
+                }
             }
             $this->members->audit($actor, $member, $kind.'_invitation_created');
 
@@ -59,16 +61,21 @@ class GuardianService
         });
     }
 
-    public function claim(User $actor, MemberInvitation $invitation, string $token): MemberIdentity
+    public function claim(User $actor, MemberInvitation $invitation, ?string $token = null, bool $accept = false): MemberIdentity
     {
-        return DB::transaction(function () use ($actor, $invitation, $token): MemberIdentity {
+        return DB::transaction(function () use ($actor, $invitation, $token, $accept): MemberIdentity {
             $invitation = MemberInvitation::query()->lockForUpdate()->findOrFail($invitation->id);
+            $ownershipProof = match ($invitation->delivery_method) {
+                'email' => $token !== null && hash_equals($invitation->token_hash, hash('sha256', $token)),
+                'in_app' => $accept === true,
+                default => false,
+            };
             if (! $actor->hasVerifiedEmail() || strtolower($actor->email) !== $invitation->email
                 || User::query()->whereRaw('lower(email) = ?', [$invitation->email])->count() !== 1
                 || $invitation->claimed_at !== null || $invitation->revoked_at !== null || $invitation->expires_at->isPast()
                 || ! $invitation->member->isActive()
-                || ! hash_equals($invitation->token_hash, hash('sha256', $token))) {
-                $this->members->reject('token', 'Undangan tidak dapat digunakan. Pastikan email terverifikasi dan kode masih berlaku.');
+                || ! $ownershipProof) {
+                $this->members->reject($invitation->delivery_method === 'in_app' ? 'accept' : 'token', 'Undangan tidak dapat digunakan. Pastikan email terverifikasi dan syarat penerimaan terpenuhi.');
             }
             $issuer = User::query()->findOrFail($invitation->invited_by);
             if ($invitation->identity->user_id !== $issuer->getKey()) {
