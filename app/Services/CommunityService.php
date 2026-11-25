@@ -104,6 +104,12 @@ class CommunityService
                     'joined_at' => now(),
                 ]);
 
+                app(BillingService::class)->refresh(app(BillingService::class)->platformSubject($community, true));
+                $founder = $community->membershipOf($owner);
+                if ($founder !== null) {
+                    app(BillingService::class)->initializeJoin($founder);
+                }
+
                 // Foto yang sudah terpakai menjadi permanen; yang ditinggalkan di tengah
                 // pengisian tetap dibersihkan scheduler sesudah retain_until-nya lewat.
                 Asset::query()->whereKey([$logoId, ...$photoIds])->update(['retain_until' => null]);

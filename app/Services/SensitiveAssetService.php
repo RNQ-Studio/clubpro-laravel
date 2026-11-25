@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Models\Asset;
+use App\Models\Community;
 use App\Models\CommunityMember;
 use App\Models\DuesPayment;
+use App\Models\IncomingReceipt;
 use App\Models\User;
 use App\Support\Enums\AssetStatus;
 use App\Support\Enums\StorageType;
@@ -60,6 +62,12 @@ class SensitiveAssetService
                 ->whereIn('community_id', CommunityMember::query()->select('community_id')
                     ->where('user_id', $viewer->id)->where('status', 'active')->whereIn('role', ['creator', 'admin']))
                 ->exists();
+        }
+
+        if (! $allowed) {
+            $allowed = IncomingReceipt::query()->where('proof_asset_id', $asset->id)->get()->contains(function (IncomingReceipt $receipt) use ($viewer): bool {
+                return $receipt->user_id === $viewer->id || app(IncomingReceiptService::class)->canReview($viewer, $receipt->community_id === null ? null : Community::query()->find($receipt->community_id), $receipt->purpose);
+            });
         }
 
         return $allowed ? URL::temporarySignedRoute('assets.file', now()->addMinutes(5), ['asset' => $asset->id]) : null;

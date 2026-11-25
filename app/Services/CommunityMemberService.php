@@ -62,21 +62,23 @@ class CommunityMemberService
         $existing = $community->membershipOf($user);
         if ($existing?->status === CommunityMemberStatus::Archived) {
             $existing->update(['status' => CommunityMemberStatus::Pending]);
+            app(BillingService::class)->initializeJoin($existing);
 
             return $existing->refresh();
         }
         if ($existing !== null) {
-            return $existing->isActive()
-                ? $this->reject('community', 'Anda sudah menjadi anggota komunitas ini.')
-                : $existing;
+            return $existing;
         }
 
         try {
-            return $community->members()->create([
+            $member = $community->members()->create([
                 'user_id' => $user->getKey(),
                 'role' => CommunityMemberRole::Member,
                 'status' => CommunityMemberStatus::Pending,
             ]);
+            app(BillingService::class)->initializeJoin($member);
+
+            return $member->refresh();
         } catch (UniqueConstraintViolationException) {
             // Ketuk ganda bersamaan: permintaan pertama sudah tercatat.
             return $community->membershipOf($user) ?? throw new \LogicException('Keanggotaan hilang.');
@@ -100,6 +102,7 @@ class CommunityMemberService
             $this->reject('community', 'Creator tidak bisa keluar dari komunitasnya.');
         }
 
+        app(BillingService::class)->pauseMembership($member);
         $member->update(['status' => CommunityMemberStatus::Archived]);
         $this->log($user, $member, 'community_member_left');
     }
@@ -146,6 +149,7 @@ class CommunityMemberService
                 return $member;
             }
 
+            app(BillingService::class)->refresh(app(BillingService::class)->memberSubject($member));
             $oldRole = $member->role;
             $member->update(['role' => $role]);
 
@@ -178,6 +182,7 @@ class CommunityMemberService
             }
 
             $event = $member->isActive() ? 'community_member_removed' : 'community_member_rejected';
+            app(BillingService::class)->pauseMembership($member);
             $member->update(['status' => CommunityMemberStatus::Archived]);
 
             $this->log($actor, $member, $event);

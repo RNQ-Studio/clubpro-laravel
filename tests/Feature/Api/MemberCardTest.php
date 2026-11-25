@@ -44,7 +44,7 @@ class MemberCardTest extends TestCase
         ]);
         $this->member = User::factory()->create(['name' => 'Budi Santoso']);
         $this->membership = CommunityMember::factory()->for($this->community)->for($this->member)
-            ->state(['joined_at' => Carbon::parse('2025-06-01 00:00:00', 'UTC')])
+            ->state(['billing_scheme' => 'legacy_calendar', 'joined_at' => Carbon::parse('2025-06-01 00:00:00', 'UTC')])
             ->create();
         Passport::actingAs($this->member);
     }
@@ -170,13 +170,11 @@ class MemberCardTest extends TestCase
     public function test_pembayaran_menunggu_verifikasi_tidak_dihitung(): void
     {
         $this->configure();
+        $proof = Asset::factory()->create(['user_id' => $this->member->id, 'mime_type' => 'image/jpeg', 'size' => 200000]);
+        Storage::disk('gcs')->put($proof->path, 'proof-'.$proof->id);
         $this->postJson($this->url('dues/payments'), [
             'months_count' => 2,
-            'proof_asset_id' => Asset::factory()->create([
-                'user_id' => $this->member->getKey(),
-                'mime_type' => 'image/jpeg',
-                'size' => 200_000,
-            ])->id,
+            'proof_asset_id' => $proof->id,
         ])->assertCreated();
 
         $this->getJson($this->url())

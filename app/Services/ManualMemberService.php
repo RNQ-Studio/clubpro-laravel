@@ -75,6 +75,7 @@ class ManualMemberService
                 'external_reference' => $data['external_reference'] ?? null,
                 'creation_key' => $data['idempotency_key'], 'creation_hash' => $hash, 'account_email' => $data['account_email'] ?? null,
             ]);
+            app(BillingService::class)->initializeJoin($member);
             $this->audit($actor, $member, 'manual_member_created', array_keys($data));
 
             return $member->load('identity', 'user');

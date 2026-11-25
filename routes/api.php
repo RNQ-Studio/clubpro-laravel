@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\ArticleController;
 use App\Http\Controllers\Api\V1\AssetController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BannerController;
+use App\Http\Controllers\Api\V1\BillingNoticeController;
 use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\CommunityActivityController;
 use App\Http\Controllers\Api\V1\CommunityController;
@@ -18,6 +19,7 @@ use App\Http\Controllers\Api\V1\CommunityDuesController;
 use App\Http\Controllers\Api\V1\CommunityMemberController;
 use App\Http\Controllers\Api\V1\CommunityPhotoController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
+use App\Http\Controllers\Api\V1\FinanceController;
 use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\ManualMemberController;
@@ -31,6 +33,7 @@ use App\Http\Controllers\Api\V1\PublicDirectoryController;
 use App\Http\Controllers\Api\V1\QuoteController;
 use App\Http\Controllers\Api\V1\RegionController;
 use App\Http\Controllers\Api\V1\TagController;
+use App\Http\Middleware\EnsureCommunityEntitlement;
 use App\Support\ApiResponse;
 use Illuminate\Support\Facades\Route;
 
@@ -114,6 +117,7 @@ Route::prefix('v1')->group(function (): void {
 
     // Popup Paid Promotion di Beranda (publik, dikelola di Admin Panel dan back-office).
     Route::get('banners', [BannerController::class, 'index'])->middleware('throttle:60,1');
+    Route::get('finance/options', [FinanceController::class, 'options'])->middleware('throttle:60,1');
 
     // Pilihan provinsi & kabupaten/kota.
     Route::get('regions/indonesia', [RegionController::class, 'indonesia'])->middleware('throttle:60,1');
@@ -124,7 +128,12 @@ Route::prefix('v1')->group(function (): void {
         ->name('assets.file')
         ->middleware('throttle:600,1');
 
-    Route::middleware(['auth:api', 'check.maintenance', 'track.activity'])->group(function (): void {
+    Route::middleware(['auth:api', 'check.maintenance', 'track.activity', EnsureCommunityEntitlement::class])->group(function (): void {
+        require __DIR__.'/membership-billing.php';
+        require __DIR__.'/finance.php';
+        Route::get('billing-notices', [BillingNoticeController::class, 'index']);
+        Route::post('billing-notices/{notice}/read', [BillingNoticeController::class, 'read'])->whereNumber('notice');
+
         Route::post('assets/upload', [AssetController::class, 'upload'])->middleware('throttle:30,1');
 
         Route::get('community-types', [CommunityController::class, 'types']);

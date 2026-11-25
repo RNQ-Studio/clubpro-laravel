@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Community;
 use App\Models\CommunityMember;
 use App\Support\Enums\CommunityMemberStatus;
-use App\Support\Enums\CommunityStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -18,7 +17,7 @@ class PublicDirectoryService
     {
         return CommunityMember::query()->with(['community', 'identity', 'user'])
             ->where('status', CommunityMemberStatus::Active)
-            ->whereHas('community', fn (Builder $query) => $query->where('status', CommunityStatus::Approved))
+            ->whereIn('community_id', Community::query()->approved()->select('communities.id'))
             ->whereHas('identity', fn (Builder $query) => $query->where('is_public', true)
                 ->where(fn (Builder $adult) => $adult->where(fn (Builder $account) => $account->whereNotNull('user_id')->where(fn (Builder $age) => $age->whereNull('birth_date')->orWhere('birth_date', '<=', now()->subYears(18)->toDateString())))
                     ->orWhereHas('guardianGrants', fn (Builder $grant) => $grant->whereNotNull('verified_at')->whereNull('revoked_at'))))
@@ -30,7 +29,7 @@ class PublicDirectoryService
 
     public function detail(Community $community): Community
     {
-        abort_unless($community->status === CommunityStatus::Approved, 404);
+        abort_unless(Community::query()->approved()->whereKey($community->id)->exists(), 404);
 
         return $community->load(['logo', 'photos'])->loadCount(['members as members_count' => fn (Builder $member) => $member->where('status', CommunityMemberStatus::Active)]);
     }

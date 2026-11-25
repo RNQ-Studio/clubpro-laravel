@@ -14,3 +14,5 @@ Schedule::command('assets:hard-delete-expired')->dailyAt('02:00')->withoutOverla
 
 // Database lokasi IP terbit bulanan; perintahnya melewati bila file bulan ini sudah ada.
 Schedule::command('geoip:update')->dailyAt('03:00')->withoutOverlapping();
+
+Schedule::command('billing:process')->dailyAt('00:05')->timezone('Asia/Jakarta')->withoutOverlapping();

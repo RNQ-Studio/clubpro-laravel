@@ -5,7 +5,6 @@ namespace Tests\Feature\Api;
 use App\Models\Asset;
 use App\Models\Community;
 use App\Models\CommunityMember;
-use App\Models\DuesMonth;
 use App\Models\DuesPayment;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
@@ -43,6 +42,7 @@ class CommunityDuesTest extends TestCase
 
         $this->creator = User::factory()->create(['name' => 'Creator']);
         $this->community = Community::factory()->approved()->for($this->creator, 'owner')->create();
+        $this->community->membershipOf($this->creator)?->forceFill(['billing_scheme' => 'legacy_calendar'])->save();
         $this->member = $this->join('Budi Santoso', '2025-06-01 00:00:00');
     }
 
@@ -97,7 +97,7 @@ class CommunityDuesTest extends TestCase
 
         $log = Activity::query()->where('subject_id', $this->community->id)->latest('id')->firstOrFail();
         $this->assertSame($this->creator->id, $log->causer_id);
-        $this->assertSame(50000, $log->properties['attributes']['dues_amount']);
+        $this->assertSame(50000, $log->properties['settings']['dues_amount']);
     }
 
     public function test_admin_dapat_mengelola_bukti_tetapi_tarif_hanya_pendiri(): void
@@ -352,7 +352,7 @@ class CommunityDuesTest extends TestCase
             ->assertJsonPath('data.0.user.name', 'Budi Santoso')
             ->assertJsonPath('data.0.proof_url', fn (?string $url): bool => $url !== null);
 
-        $this->postJson($this->url("dues/payments/{$payment->id}/approve"))
+        $this->postJson($this->url("dues/payments/{$payment->id}/approve"), ['verified_amount' => $payment->total_amount, 'bank_reference' => 'DUES-'.$payment->id])
             ->assertOk()
             ->assertJsonPath('data.status', 'approved')
             ->assertJsonPath('data.reviewed_by', 'Creator');
@@ -376,8 +376,8 @@ class CommunityDuesTest extends TestCase
         $payment = $this->pay($this->member, 1);
         Passport::actingAs($this->creator);
 
-        $this->postJson($this->url("dues/payments/{$payment->id}/approve"))->assertOk();
-        $this->postJson($this->url("dues/payments/{$payment->id}/approve"))->assertStatus(409);
+        $this->postJson($this->url("dues/payments/{$payment->id}/approve"), ['verified_amount' => $payment->total_amount, 'bank_reference' => 'DUES-'.$payment->id])->assertOk();
+        $this->postJson($this->url("dues/payments/{$payment->id}/approve"), ['verified_amount' => $payment->total_amount, 'bank_reference' => 'DUES-'.$payment->id])->assertStatus(409);
         $this->postJson($this->url("dues/payments/{$payment->id}/reject"), ['note' => 'Nominal kurang'])->assertStatus(409);
     }
 
@@ -422,43 +422,18 @@ class CommunityDuesTest extends TestCase
         $this->postJson($this->url("dues/payments/{$foreign->id}/approve"))->assertNotFound();
     }
 
-    public function test_ubah_manual_bulan_lunas_dan_belum_lunas(): void
+    public function test_ubah_manual_tanpa_transaksi_tidak_bisa_mencetak_atau_menghapus_pelunasan(): void
     {
         $this->configure();
         Passport::actingAs($this->creator);
         $url = $this->url("dues/members/{$this->member->id}/months/2026-04");
-
-        $this->putJson($url, ['paid' => true])->assertOk();
-        $this->putJson($url, ['paid' => true])->assertOk(); // ketuk ganda
-        $member = $this->getJson($this->url("dues/members/{$this->member->id}"))->json('data.member');
-        $this->assertSame('paid', $member['months'][3]['status']);
-        $this->assertSame(7, $member['arrears_count']);
-        // Maret belum lunas: "lunas sampai" hanya dihitung berurutan dari awal tagihan.
-        $this->assertNull($member['paid_until']);
-        $this->assertSame(1, DuesMonth::query()->count());
-
-        // Di luar masa iuran pun boleh ditandai, mis. bayar di muka sebelum iuran berlaku.
-        $this->putJson($this->url("dues/members/{$this->member->id}/months/2026-01"), ['paid' => true])->assertOk();
-
-        $this->putJson($url, ['paid' => false])->assertOk();
-        $member = $this->getJson($this->url("dues/members/{$this->member->id}"))->json('data.member');
-        $this->assertSame('overdue', $member['months'][3]['status']);
-        $this->assertSame('paid', $member['months'][0]['status']);
-
-        $this->assertSame(2, Activity::query()->where('event', 'dues_month_paid')->count());
-        $this->assertSame(1, Activity::query()->where('event', 'dues_month_unpaid')->count());
-    }
-
-    public function test_bulan_yang_lunas_lewat_pembayaran_bisa_dibatalkan_manual(): void
-    {
-        $this->configure();
+        $this->putJson($url, ['paid' => true])->assertUnprocessable();
+        $this->assertDatabaseCount('dues_months', 0);
         $payment = $this->pay($this->member, 1);
-        Passport::actingAs($this->creator);
-        $this->postJson($this->url("dues/payments/{$payment->id}/approve"))->assertOk();
-
-        $this->putJson($this->url("dues/members/{$this->member->id}/months/2026-03"), ['paid' => false])->assertOk();
-
-        $this->assertSame(0, DuesMonth::query()->count());
+        $this->postJson($this->url("dues/payments/{$payment->id}/approve"), ['verified_amount' => $payment->total_amount, 'bank_reference' => 'DUES-'.$payment->id])->assertOk();
+        $this->putJson($this->url("dues/members/{$this->member->id}/months/2026-03"), ['paid' => false])->assertUnprocessable();
+        $this->assertDatabaseHas('dues_months', ['community_id' => $this->community->id, 'user_id' => $this->member->id, 'month' => '2026-03-01', 'status' => 'paid']);
+        $this->assertDatabaseCount('ledger_journals', 1);
     }
 
     public function test_bulan_menunggu_verifikasi_tidak_bisa_diubah_manual(): void
@@ -466,10 +441,8 @@ class CommunityDuesTest extends TestCase
         $this->configure();
         $this->pay($this->member, 1);
         Passport::actingAs($this->creator);
-
-        $this->putJson($this->url("dues/members/{$this->member->id}/months/2026-03"), ['paid' => false])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['month' => 'Bulan ini sedang menunggu verifikasi pembayaran. Terima atau tolak pembayarannya dulu.']);
+        $this->putJson($this->url("dues/members/{$this->member->id}/months/2026-03"), ['paid' => false])->assertUnprocessable();
+        $this->assertDatabaseHas('dues_months', ['month' => '2026-03-01', 'status' => 'pending']);
     }
 
     public function test_ubah_manual_hanya_untuk_anggota_aktif_dan_bulan_valid(): void
@@ -483,24 +456,14 @@ class CommunityDuesTest extends TestCase
         $this->putJson($this->url("dues/members/{$this->member->id}/months/2026-03"), [])->assertUnprocessable();
     }
 
-    public function test_uang_masuk_ditandai_manual(): void
+    public function test_uang_masuk_tidak_dapat_dilunasi_tanpa_transaksi(): void
     {
         $this->configure();
         Passport::actingAs($this->creator);
         $url = $this->url("dues/members/{$this->member->id}/entry-fee");
-
-        $this->putJson($url, ['paid' => true])->assertOk();
-        $this->assertTrue($this->getJson($this->url("dues/members/{$this->member->id}"))->json('data.member.entry_fee_paid'));
-
-        Passport::actingAs($this->member);
-        $this->assertSame(0, $this->getJson($this->url('dues'))->json('data.me.entry_fee_due'));
-        // Pembayaran berikutnya tanpa uang masuk.
-        $this->postJson($this->url('dues/payments'), ['months_count' => 1, 'proof_asset_id' => $this->proof($this->member)->id])
-            ->assertJsonPath('data.total_amount', 50000);
-
-        Passport::actingAs($this->creator);
-        $this->putJson($url, ['paid' => false])->assertOk();
-        $this->assertFalse($this->getJson($this->url("dues/members/{$this->member->id}"))->json('data.member.entry_fee_paid'));
+        $this->putJson($url, ['paid' => true])->assertUnprocessable();
+        $this->assertNull($this->community->membershipOf($this->member)?->entry_fee_paid_at);
+        $this->assertDatabaseCount('ledger_journals', 0);
     }
 
     public function test_kalender_semua_anggota_dengan_tunggakan_dan_pencarian(): void
@@ -590,7 +553,7 @@ class CommunityDuesTest extends TestCase
     private function join(string $name, string $joinedAtUtc, bool $admin = false): User
     {
         $user = User::factory()->create(['name' => $name]);
-        $factory = CommunityMember::factory()->for($this->community)->for($user)->state(['joined_at' => Carbon::parse($joinedAtUtc, 'UTC')]);
+        $factory = CommunityMember::factory()->for($this->community)->for($user)->state(['billing_scheme' => 'legacy_calendar', 'joined_at' => Carbon::parse($joinedAtUtc, 'UTC')]);
         ($admin ? $factory->admin() : $factory)->create();
 
         return $user;
@@ -614,12 +577,15 @@ class CommunityDuesTest extends TestCase
     /** @param  array<string, mixed>  $attributes */
     private function proof(User $owner, array $attributes = []): Asset
     {
-        return Asset::factory()->create([
+        $asset = Asset::factory()->create([
             'user_id' => $owner->getKey(),
             'mime_type' => 'image/jpeg',
             'size' => 200_000,
             ...$attributes,
         ]);
+        Storage::disk('gcs')->put($asset->path, 'proof-'.$asset->id);
+
+        return $asset;
     }
 
     private function url(string $path): string

@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $user_id
  * @property int|null $member_identity_id
  * @property int|null $merged_into_member_id
+ * @property string $billing_scheme
  * @property string|null $external_reference
  * @property string|null $creation_key
  * @property string|null $creation_hash
@@ -41,6 +42,9 @@ class CommunityMember extends Model
     protected static function booted(): void
     {
         static::creating(function (self $member): void {
+            if (! $member->isDirty('billing_scheme')) {
+                $member->billing_scheme = 'anniversary';
+            }
             if ($member->member_identity_id === null && $member->user_id !== null) {
                 $member->member_identity_id = MemberIdentity::forUser(User::query()->findOrFail($member->user_id))->id;
             }

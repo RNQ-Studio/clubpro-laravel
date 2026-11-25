@@ -251,6 +251,8 @@ class GuardianService
         }
         $target->save();
         $this->reconcileAccountDemographics($actor, $target);
+        app(LedgerService::class)->mergeIdentity($source, $target, $actor);
+        app(BillingService::class)->mergeIdentity($source, $target, $actor);
         foreach ($source->memberships()->lockForUpdate()->get() as $sourceMember) {
             $canonicalMember = $target->memberships()->where('community_id', $sourceMember->community_id)->lockForUpdate()->first();
             if ($canonicalMember !== null) {

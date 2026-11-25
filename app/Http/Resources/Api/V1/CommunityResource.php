@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\Community;
+use App\Services\BillingService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Str;
@@ -18,6 +19,12 @@ class CommunityResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
+            'entitlement_active' => $this->when($this->relationLoaded('members') && $request->user() !== null, function (): ?bool {
+                $member = $this->members->firstWhere('user_id', auth('api')->id());
+
+                return $member === null ? null : app(BillingService::class)->entitlement(app(BillingService::class)->memberSubject($member))['active'];
+            }),
+            'platform_active' => $this->when($this->relationLoaded('members') && $request->user() !== null, fn (): bool => app(BillingService::class)->entitlement(app(BillingService::class)->platformSubject($this->resource))['active']),
             'id' => $this->id,
             'name' => $this->name,
             'short_name' => $this->short_name,

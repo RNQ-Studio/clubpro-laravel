@@ -71,21 +71,21 @@ class CommunityMemberTest extends TestCase
         $this->json($method, str_replace('{c}', (string) $this->community->id, $path))->assertUnauthorized();
     }
 
-    public function test_gabung_menunggu_persetujuan_dan_belum_jadi_anggota(): void
+    public function test_gabung_langsung_trial_aktif_tanpa_persetujuan_keanggotaan(): void
     {
         $user = User::factory()->create();
         Passport::actingAs($user);
 
         $this->postJson($this->url('join'))
             ->assertOk()
-            ->assertJsonPath('data.status', 'pending')
+            ->assertJsonPath('data.status', 'active')
             ->assertJsonPath('data.role', 'member');
 
-        $this->getJson('/api/v1/communities/joined')->assertOk()->assertJsonCount(0, 'data');
-        $this->getJson($this->url('members'))->assertForbidden();
+        $this->getJson('/api/v1/communities/joined')->assertOk()->assertJsonCount(1, 'data');
+        $this->getJson($this->url('members'))->assertOk();
         $this->getJson("/api/v1/communities/{$this->community->id}")
             ->assertOk()
-            ->assertJsonPath('data.my_status', 'pending')
+            ->assertJsonPath('data.my_status', 'active')
             ->assertJsonPath('data.can_manage', false);
     }
 
@@ -108,12 +108,12 @@ class CommunityMemberTest extends TestCase
         $this->postJson("/api/v1/communities/{$pending->id}/join")->assertNotFound();
     }
 
-    public function test_anggota_aktif_tidak_bisa_gabung_lagi(): void
+    public function test_gabung_ulang_anggota_aktif_adalah_retry_aman(): void
     {
         $member = $this->member();
         Passport::actingAs($member->user);
 
-        $this->postJson($this->url('join'))->assertUnprocessable();
+        $this->postJson($this->url('join'))->assertOk();
     }
 
     public function test_creator_menerima_permintaan(): void

@@ -130,7 +130,7 @@ class CommunityAccessTest extends TestCase
         Passport::actingAs($member->user);
         $this->postJson("/api/v1/communities/{$community->id}/leave")->assertOk();
         $this->assertDatabaseHas('community_members', ['id' => $member->id, 'status' => 'archived']);
-        $this->postJson("/api/v1/communities/{$community->id}/join")->assertOk()->assertJsonPath('data.id', $member->id)->assertJsonPath('data.status', 'pending');
+        $this->postJson("/api/v1/communities/{$community->id}/join")->assertOk()->assertJsonPath('data.id', $member->id)->assertJsonPath('data.status', 'active');
         $this->assertSame($identityId, $member->refresh()->member_identity_id);
         $this->assertSame($cardNumber, $member->cardNumber());
         $this->assertSame('2025-01-01', $member->joined_at->toDateString());

@@ -10,10 +10,10 @@ use App\Models\GuardianGrant;
 use App\Models\MemberIdentity;
 use App\Models\MemberInvitation;
 use App\Models\User;
+use App\Services\BillingService;
 use App\Services\DuesService;
 use App\Services\GuardianService;
 use App\Support\ApiResponse;
-use App\Support\Enums\MemberCardStatus;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -74,11 +74,11 @@ class GuardianController extends Controller
         $this->guardians->authorizeDependent($this->actor($request), $identity);
         abort_unless($member->member_identity_id === $identity->id, 404);
         abort_unless($member->isActive(), 403, 'Kartu anggota hanya tersedia untuk keanggotaan aktif.');
-        $validity = $member->user_id === null
-            ? ['status' => $member->community->dues_amount ? MemberCardStatus::Inactive : MemberCardStatus::NoDues, 'valid_until' => null, 'paid_until' => null]
-            : $this->dues->cardValidity($member->community, $member);
+        $validity = $this->dues->cardValidity($member->community, $member);
 
         return ApiResponse::success([
+            'entitlement' => app(BillingService::class)->entitlement(app(BillingService::class)->memberSubject($member)),
+            'platform_active' => app(BillingService::class)->entitlement(app(BillingService::class)->platformSubject($member->community))['active'],
             'member_number' => $member->cardNumber(), 'name' => $identity->name, 'role' => $member->role->value,
             'community_name' => $member->community->name, 'status' => $member->status->value,
             'validity' => ['status' => $validity['status']->value, 'valid_until' => $validity['valid_until']?->toDateString(), 'paid_until' => $validity['paid_until']?->format('Y-m')],

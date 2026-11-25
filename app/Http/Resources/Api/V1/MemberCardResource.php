@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\CommunityMember;
+use App\Services\BillingService;
 use App\Support\Enums\MemberCardStatus;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
@@ -30,6 +31,8 @@ class MemberCardResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
+            'entitlement' => app(BillingService::class)->entitlement(app(BillingService::class)->memberSubject($this->resource)),
+            'platform_active' => app(BillingService::class)->entitlement(app(BillingService::class)->platformSubject($this->community))['active'],
             'member_number' => $this->cardNumber(),
             'name' => $this->user->name,
             'avatar_url' => $this->user->avatarUrl(),

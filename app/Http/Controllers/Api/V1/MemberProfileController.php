@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Community;
 use App\Models\CommunityMember;
 use App\Models\User;
+use App\Services\BillingService;
 use App\Support\ApiResponse;
 use App\Support\Enums\CommunityMemberStatus;
 use App\Support\Enums\CommunityStatus;
@@ -15,6 +16,8 @@ use Illuminate\Http\Request;
 
 class MemberProfileController extends Controller
 {
+    public function __construct(private readonly BillingService $billing) {}
+
     /**
      * Profil umum sesama anggota komunitas: foto, nama, dan komunitas yang sama.
      * Selain anggota komunitas yang sama, pengguna ini seolah tidak ada.
@@ -40,6 +43,17 @@ class MemberProfileController extends Controller
             ->with(['community.logo'])
             ->orderBy('joined_at')
             ->get();
+
+        if (! $seesAll) {
+            // This route exposes internal membership context; public discovery remains separate.
+            $memberships = $memberships->filter(function (CommunityMember $member) use ($viewer): bool {
+                $viewerMember = $member->community->membershipOf($viewer);
+
+                return $viewerMember !== null
+                    && $this->billing->entitlement($this->billing->memberSubject($viewerMember))['active']
+                    && $this->billing->entitlement($this->billing->platformSubject($member->community))['active'];
+            });
+        }
 
         abort_if(! $seesAll && $memberships->isEmpty(), 404);
 

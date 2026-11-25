@@ -131,13 +131,14 @@ class CommunityDuesController extends Controller
 
     public function approve(Request $request, Community $community, DuesPayment $duesPayment): JsonResponse
     {
+        $request->validate(['verified_amount' => ['required', 'integer', 'min:1', 'max:1000000000'], 'bank_reference' => ['required', 'string', 'max:150']]);
         $this->authorize('manageDues', $community);
 
         /** @var User $user */
         $user = $request->user();
 
         return ApiResponse::success(
-            new DuesPaymentResource($this->dues->approve($user, $duesPayment)->load(['user', 'proof', 'reviewer'])),
+            new DuesPaymentResource($this->dues->approve($user, $duesPayment, $request->has('verified_amount') ? $request->integer('verified_amount') : null, $request->filled('bank_reference') ? (string) $request->string('bank_reference') : null)->load(['user', 'proof', 'reviewer'])),
             'Pembayaran diterima',
         );
     }

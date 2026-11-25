@@ -47,7 +47,8 @@ class ApiResponse
         string $message,
         int $status = 400,
         array $errors = [],
-        ApiErrorCode|string|null $code = null
+        ApiErrorCode|string|null $code = null,
+        array $meta = []
     ): JsonResponse {
         $payload = [
             'success' => false,
@@ -60,6 +61,10 @@ class ApiResponse
 
         if (! empty($errors)) {
             $payload['errors'] = $errors;
+        }
+
+        if (! empty($meta)) {
+            $payload['meta'] = $meta;
         }
 
         return response()->json($payload, $status);

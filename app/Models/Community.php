@@ -38,6 +38,8 @@ use Spatie\Activitylog\Traits\LogsActivity;
  * @property string|null $contact_email
  * @property string $logo_asset_id
  * @property int|null $dues_amount
+ * @property int $dues_period_months
+ * @property Carbon|null $billing_cutover_date
  * @property int $entry_fee
  * @property Carbon|null $dues_start_date
  * @property string|null $dues_bank_name
@@ -88,6 +90,8 @@ class Community extends Model
             'type' => CommunityType::class,
             'reviewed_at' => 'datetime',
             'dues_amount' => 'integer',
+            'dues_period_months' => 'integer',
+            'billing_cutover_date' => 'date',
             'entry_fee' => 'integer',
             'dues_start_date' => 'date',
         ];
@@ -167,7 +171,7 @@ class Community extends Model
     /** @param  Builder<Community>  $query */
     public function scopeApproved(Builder $query): void
     {
-        $query->where('status', CommunityStatus::Approved);
+        $query->where('status', CommunityStatus::Approved)->whereNotIn('communities.id', BillingSubject::query()->select('community_id')->where('kind', 'platform')->whereNotNull('archived_at'));
     }
 
     /** Label jenis untuk ditampilkan; "Lainnya" memakai isian pengaju. */
