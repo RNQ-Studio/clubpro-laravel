@@ -21,8 +21,10 @@ class CommunityMemberResource extends JsonResource
         return [
             'id' => $this->id,
             'user_id' => $this->user_id,
-            'name' => $this->user->name,
-            'avatar_url' => $this->user->avatarUrl(),
+            'member_identity_id' => $this->member_identity_id,
+            'is_manual' => $this->user_id === null,
+            'name' => $this->identity->name ?? $this->user->name ?? 'Anggota',
+            'avatar_url' => $this->user?->avatarUrl(),
             'role' => $this->role->value,
             'role_label' => $this->role->label(),
             'status' => $this->status->value,

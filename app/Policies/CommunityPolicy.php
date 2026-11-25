@@ -4,6 +4,7 @@ namespace App\Policies;
 
 use App\Models\Community;
 use App\Models\User;
+use App\Support\Enums\CommunityMemberRole;
 use App\Support\Enums\CommunityMemberStatus;
 use App\Support\Enums\CommunityStatus;
 use Illuminate\Auth\Access\Response;
@@ -22,6 +23,30 @@ class CommunityPolicy
     public function manage(User $user, Community $community): bool
     {
         return $community->isManagedBy($user);
+    }
+
+    public function manageMembers(User $user, Community $community): bool
+    {
+        $member = $community->membershipOf($user);
+
+        return $member?->isActive() === true && $member->role->canManageMembers();
+    }
+
+    public function manageDues(User $user, Community $community): bool
+    {
+        return $this->manageMembers($user, $community);
+    }
+
+    public function configureDues(User $user, Community $community): bool
+    {
+        $member = $community->membershipOf($user);
+
+        return $member?->isActive() === true && $member->role === CommunityMemberRole::Creator;
+    }
+
+    public function recordMembers(User $user, Community $community): bool
+    {
+        return $this->manage($user, $community);
     }
 
     /** Iuran: melihat dan membayar iuran sendiri, hanya anggota aktif. */

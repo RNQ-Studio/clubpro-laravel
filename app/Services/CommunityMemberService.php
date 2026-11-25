@@ -15,28 +15,32 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Keanggotaan komunitas. Creator dan admin menerima anggota dan memberi akses admin;
- * mencabut admin hanya oleh creator agar admin tidak bisa saling menjatuhkan.
+ * Keanggotaan komunitas. Pendiri/admin mengelola anggota; hanya pendiri
+ * yang dapat mengaktifkan atau mencabut admin lain.
  */
 class CommunityMemberService
 {
     /**
      * @return LengthAwarePaginator<int, CommunityMember>
      */
-    public function paginate(Community $community, CommunityMemberStatus $status, int $perPage): LengthAwarePaginator
+    public function paginate(Community $community, CommunityMemberStatus $status, int $perPage, ?string $search = null, ?string $role = null): LengthAwarePaginator
     {
         $members = $community->members()
             ->select('community_members.*')
-            ->join('users', 'users.id', '=', 'community_members.user_id')
-            ->with('user')
+            ->leftJoin('users', 'users.id', '=', 'community_members.user_id')
+            ->leftJoin('member_identities', 'member_identities.id', '=', 'community_members.member_identity_id')
+            ->with(['user', 'identity'])
             ->where('community_members.status', $status)
-            ->orderByRaw("case community_members.role when 'creator' then 0 when 'admin' then 1 else 2 end")
-            ->orderBy('users.name')
+            ->when(filled($search), fn ($query) => $query->whereRaw('lower(coalesce(member_identities.name, users.name)) like ?', ['%'.addcslashes(mb_strtolower(trim((string) $search)), '\\%_').'%']))
+            ->when($role, fn ($query) => $query->where('community_members.role', $role))
+            ->orderByRaw("case community_members.role when 'creator' then 0 when 'admin' then 1 when 'officer' then 2 when 'coach' then 3 else 4 end")
+            ->orderByRaw('coalesce(member_identities.name, users.name)')
             ->orderBy('community_members.id')
             ->paginate($perPage);
 
         // `users.avatar` bisa berisi path lama; hanya yang UUID boleh menyentuh tabel assets.
-        Collection::make(array_map(fn (CommunityMember $member): User => $member->user, $members->items()))
+        Collection::make(array_map(fn (CommunityMember $member): ?User => $member->user, $members->items()))
+            ->filter(fn (?User $user): bool => $user !== null)
             ->filter(fn (User $user): bool => Str::isUuid((string) $user->avatar))
             ->load('avatarAsset');
 
@@ -55,6 +59,11 @@ class CommunityMemberService
         }
 
         $existing = $community->membershipOf($user);
+        if ($existing?->status === CommunityMemberStatus::Archived) {
+            $existing->update(['status' => CommunityMemberStatus::Pending]);
+
+            return $existing->refresh();
+        }
         if ($existing !== null) {
             return $existing->isActive()
                 ? $this->reject('community', 'Anda sudah menjadi anggota komunitas ini.')
@@ -90,7 +99,8 @@ class CommunityMemberService
             $this->reject('community', 'Creator tidak bisa keluar dari komunitasnya.');
         }
 
-        $member->delete();
+        $member->update(['status' => CommunityMemberStatus::Archived]);
+        $this->log($user, $member, 'community_member_left');
     }
 
     /**
@@ -98,11 +108,12 @@ class CommunityMemberService
      */
     public function approve(User $actor, CommunityMember $member): CommunityMember
     {
+        $this->assertManageTarget($actor, $member);
         if ($member->isActive()) {
             $this->reject('member', 'Pengguna ini sudah menjadi anggota.');
         }
 
-        $member->update(['status' => CommunityMemberStatus::Active, 'joined_at' => now()]);
+        $member->update(['status' => CommunityMemberStatus::Active, 'joined_at' => $member->joined_at ?? now()]);
 
         $this->log($actor, $member, 'community_member_approved');
 
@@ -116,6 +127,7 @@ class CommunityMemberService
      */
     public function setRole(User $actor, CommunityMember $member, CommunityMemberRole $role): CommunityMember
     {
+        $this->assertManageTarget($actor, $member, $role);
         if (! $member->isActive()) {
             $this->reject('role', 'Terima permintaan bergabungnya terlebih dahulu.');
         }
@@ -128,14 +140,10 @@ class CommunityMemberService
             return $member;
         }
 
-        // Admin boleh mundur sendiri, tetapi tidak mencabut admin lain.
-        if ($role === CommunityMemberRole::Member && $member->user_id !== $actor->getKey() && ! $this->isCreator($actor, $member)) {
-            $this->reject('role', 'Hanya creator yang bisa mencabut akses admin.');
-        }
-
+        $oldRole = $member->role;
         $member->update(['role' => $role]);
 
-        $this->log($actor, $member, $role === CommunityMemberRole::Admin ? 'community_admin_granted' : 'community_admin_revoked');
+        $this->log($actor, $member, $role === CommunityMemberRole::Admin ? 'community_admin_granted' : ($oldRole === CommunityMemberRole::Admin ? 'community_admin_revoked' : 'community_role_updated'), ['old_role' => $oldRole->value, 'new_role' => $role->value]);
 
         return $member->refresh();
     }
@@ -147,6 +155,7 @@ class CommunityMemberService
      */
     public function remove(User $actor, CommunityMember $member): void
     {
+        $this->assertManageTarget($actor, $member);
         if ($member->role === CommunityMemberRole::Creator) {
             $this->reject('member', 'Creator tidak bisa dikeluarkan.');
         }
@@ -160,9 +169,22 @@ class CommunityMemberService
         }
 
         $event = $member->isActive() ? 'community_member_removed' : 'community_member_rejected';
-        $member->delete();
+        $member->update(['status' => CommunityMemberStatus::Archived]);
 
         $this->log($actor, $member, $event);
+    }
+
+    private function assertManageTarget(User $actor, CommunityMember $member, ?CommunityMemberRole $newRole = null): void
+    {
+        if (! $actor->can('manageMembers', $member->community)) {
+            abort(403);
+        }
+        if ($member->role === CommunityMemberRole::Creator) {
+            $this->reject('role', 'Pendiri tidak dapat diubah.');
+        }
+        if (! $this->isCreator($actor, $member) && ($newRole === CommunityMemberRole::Admin || ($member->role === CommunityMemberRole::Admin && $member->user_id !== $actor->getKey()))) {
+            $this->reject('role', 'Hanya pendiri yang dapat mengaktifkan atau mengubah admin.');
+        }
     }
 
     /** Super admin setara creator: ia yang menengahi bila ada masalah di komunitas. */
@@ -172,13 +194,14 @@ class CommunityMemberService
             || $member->community->membershipOf($actor)?->role === CommunityMemberRole::Creator;
     }
 
-    private function log(User $actor, CommunityMember $member, string $event): void
+    /** @param array<string, mixed> $changes */
+    private function log(User $actor, CommunityMember $member, string $event, array $changes = []): void
     {
         activity('community')
             ->causedBy($actor)
             ->performedOn($member->community)
             ->event($event)
-            ->withProperties(['user_id' => $member->user_id])
+            ->withProperties(['user_id' => $member->user_id, 'member_id' => $member->id, 'member_identity_id' => $member->member_identity_id, 'role' => $member->role->value, 'status' => $member->status->value, ...$changes])
             ->log($event);
     }
 

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\ListCommunitiesRequest;
 use App\Http\Requests\Api\V1\StoreCommunityRequest;
+use App\Http\Requests\Api\V1\UpdateCommunityRequest;
 use App\Http\Resources\Api\V1\CommunityDetailResource;
 use App\Http\Resources\Api\V1\CommunityResource;
 use App\Models\Community;
@@ -89,6 +90,15 @@ class CommunityController extends Controller
             'Komunitas diajukan dan menunggu verifikasi',
             201,
         );
+    }
+
+    public function update(UpdateCommunityRequest $request, Community $community): JsonResponse
+    {
+        $this->authorize('manage', $community);
+        /** @var User $user */
+        $user = $request->user();
+
+        return ApiResponse::success(new CommunityDetailResource($this->communities->detail($user, $this->communities->update($user, $community, $request->validated()))), 'Komunitas diperbarui');
     }
 
     /**

@@ -147,7 +147,7 @@ class CommunityMemberTest extends TestCase
 
         $this->deleteJson($this->url("members/{$request->id}"))->assertOk();
 
-        $this->assertDatabaseMissing('community_members', ['id' => $request->id]);
+        $this->assertDatabaseHas('community_members', ['id' => $request->id, 'status' => 'archived']);
         $this->assertSame(1, Activity::query()->where('event', 'community_member_rejected')->count());
 
         Passport::actingAs($request->user);
@@ -165,7 +165,7 @@ class CommunityMemberTest extends TestCase
         $rows = $this->getJson($this->url('members'))->assertOk()->json('data');
 
         $this->assertSame(['Creator', 'Budi', 'Andi', 'Zaki'], array_column($rows, 'name'));
-        $this->assertSame('Creator', $rows[0]['role_label']);
+        $this->assertSame('Pendiri', $rows[0]['role_label']);
         $this->assertSame('Admin', $rows[1]['role_label']);
         foreach (['email', 'phone', 'address', 'birth_date', 'emergency_contact_phone', 'domicile_city_name', 'nik_city_name'] as $private) {
             $this->assertArrayNotHasKey($private, $rows[0]);
@@ -225,18 +225,14 @@ class CommunityMemberTest extends TestCase
         $this->getJson($this->url('members'))->assertOk()->assertJsonCount(2, 'data');
     }
 
-    public function test_creator_dan_admin_bisa_memberi_akses_admin(): void
+    public function test_hanya_pendiri_bisa_memberi_akses_admin(): void
     {
-        foreach ([$this->creator, $this->member(admin: true)->user] as $actor) {
-            $target = $this->member();
-            Passport::actingAs($actor);
-
-            $this->putJson($this->url("members/{$target->id}/role"), ['role' => 'admin'])
-                ->assertOk()
-                ->assertJsonPath('data.role', 'admin');
-        }
-
-        $this->assertSame(2, Activity::query()->where('event', 'community_admin_granted')->count());
+        $target = $this->member();
+        Passport::actingAs($this->member(admin: true)->user);
+        $this->putJson($this->url("members/{$target->id}/role"), ['role' => 'admin'])->assertUnprocessable();
+        Passport::actingAs($this->creator);
+        $this->putJson($this->url("members/{$target->id}/role"), ['role' => 'admin'])->assertOk()->assertJsonPath('data.role', 'admin');
+        $this->assertSame(1, Activity::query()->where('event', 'community_admin_granted')->count());
     }
 
     public function test_akses_admin_langsung_berlaku(): void
@@ -316,7 +312,7 @@ class CommunityMemberTest extends TestCase
 
         $this->deleteJson($this->url("members/{$member->id}"))->assertOk();
 
-        $this->assertDatabaseMissing('community_members', ['id' => $member->id]);
+        $this->assertDatabaseHas('community_members', ['id' => $member->id, 'status' => 'archived']);
         $this->assertSame(1, Activity::query()->where('event', 'community_member_removed')->count());
     }
 
@@ -347,7 +343,7 @@ class CommunityMemberTest extends TestCase
 
         $this->postJson($this->url('leave'))->assertOk();
 
-        $this->assertDatabaseMissing('community_members', ['id' => $member->id]);
+        $this->assertDatabaseHas('community_members', ['id' => $member->id, 'status' => 'archived']);
     }
 
     public function test_membatalkan_permintaan_bergabung(): void
@@ -357,7 +353,7 @@ class CommunityMemberTest extends TestCase
 
         $this->postJson($this->url('leave'))->assertOk();
 
-        $this->assertDatabaseMissing('community_members', ['id' => $request->id]);
+        $this->assertDatabaseHas('community_members', ['id' => $request->id, 'status' => 'archived']);
     }
 
     public function test_creator_tidak_bisa_keluar(): void

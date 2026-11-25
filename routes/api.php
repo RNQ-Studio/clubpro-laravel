@@ -18,12 +18,16 @@ use App\Http\Controllers\Api\V1\CommunityDuesController;
 use App\Http\Controllers\Api\V1\CommunityMemberController;
 use App\Http\Controllers\Api\V1\CommunityPhotoController;
 use App\Http\Controllers\Api\V1\EmailVerificationController;
+use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\ManualMemberController;
 use App\Http\Controllers\Api\V1\MemberCardController;
 use App\Http\Controllers\Api\V1\MemberProfileController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OtpController;
 use App\Http\Controllers\Api\V1\PasswordResetController;
+use App\Http\Controllers\Api\V1\PinController;
+use App\Http\Controllers\Api\V1\PublicDirectoryController;
 use App\Http\Controllers\Api\V1\QuoteController;
 use App\Http\Controllers\Api\V1\RegionController;
 use App\Http\Controllers\Api\V1\TagController;
@@ -31,15 +35,16 @@ use App\Support\ApiResponse;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
-    /*
-    |--------------------------------------------------------------------------
-    | Excel Import & Export Routes (Tanpa Middleware Auth)
-    |--------------------------------------------------------------------------
-    | Jika Anda ingin memproteksi endpoint ini dengan middleware auth Passport di kemudian hari,
-    | Anda bisa menambahkan middleware: ->middleware('auth:api')
-    */
-    Route::get('users/export', [UserExcelController::class, 'export']);
-    Route::post('users/import', [UserExcelController::class, 'import']);
+    Route::middleware(['auth:api', 'can:admin-panel'])->group(function (): void {
+        Route::get('users/export', [UserExcelController::class, 'export']);
+        Route::post('users/import', [UserExcelController::class, 'import']);
+    });
+
+    Route::prefix('public')->middleware('throttle:60,1')->group(function (): void {
+        Route::get('communities', [PublicDirectoryController::class, 'communities']);
+        Route::get('communities/{community}', [PublicDirectoryController::class, 'community'])->whereNumber('community');
+        Route::get('members', [PublicDirectoryController::class, 'members']);
+    });
 
     Route::get('health', HealthController::class);
 
@@ -67,6 +72,9 @@ Route::prefix('v1')->group(function (): void {
     });
 
     Route::prefix('auth')->group(function (): void {
+        Route::post('pin/login', [PinController::class, 'login'])->middleware(['throttle:60,1', 'check.maintenance']);
+        Route::post('pin/recovery', [PinController::class, 'recovery'])->middleware(['throttle:6,1', 'check.maintenance']);
+        Route::post('pin/reset', [PinController::class, 'reset'])->middleware(['throttle:30,1', 'check.maintenance']);
         Route::post('register', [AuthController::class, 'register'])->middleware(['throttle:6,1', 'check.maintenance']);
         Route::post('login', [AuthController::class, 'login'])->middleware(['throttle:6,1', 'check.maintenance']);
         Route::post('google', [AuthController::class, 'google'])->middleware(['throttle:10,1', 'check.maintenance']);
@@ -88,6 +96,7 @@ Route::prefix('v1')->group(function (): void {
                 ->middleware('throttle:6,1');
             Route::post('email/verify', [EmailVerificationController::class, 'verify']);
 
+            Route::put('pin', [PinController::class, 'change'])->middleware('throttle:30,1');
             Route::get('me', [AuthController::class, 'me']);
             Route::put('me', [AuthController::class, 'updateProfile']);
             Route::post('avatar', [AuthController::class, 'uploadAvatar']);
@@ -99,7 +108,8 @@ Route::prefix('v1')->group(function (): void {
         });
     });
 
-    Route::apiResource('quotes', QuoteController::class);
+    Route::apiResource('quotes', QuoteController::class)->only(['index', 'show']);
+    Route::apiResource('quotes', QuoteController::class)->except(['index', 'show'])->middleware(['auth:api', 'can:admin-panel']);
 
     // Popup Paid Promotion di Beranda (publik, dikelola di Admin Panel dan back-office).
     Route::get('banners', [BannerController::class, 'index'])->middleware('throttle:60,1');
@@ -120,6 +130,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('communities', [CommunityController::class, 'index']);
         Route::get('communities/mine', [CommunityController::class, 'mine']);
         Route::get('communities/{community}', [CommunityController::class, 'show'])->whereNumber('community');
+        Route::put('communities/{community}', [CommunityController::class, 'update'])->whereNumber('community');
         Route::post('communities', [CommunityController::class, 'store'])->middleware('throttle:10,1');
         Route::get('communities/joined', [CommunityController::class, 'joined']);
 
@@ -127,6 +138,11 @@ Route::prefix('v1')->group(function (): void {
             Route::post('join', [CommunityMemberController::class, 'join'])->middleware('throttle:30,1');
             Route::post('leave', [CommunityMemberController::class, 'leave']);
 
+            Route::post('manual-members', [ManualMemberController::class, 'store'])->middleware('throttle:30,1');
+            Route::get('manual-members/{member}', [ManualMemberController::class, 'show'])->whereNumber('member');
+            Route::put('manual-members/{member}', [ManualMemberController::class, 'update'])->whereNumber('member');
+            Route::post('members/{member}/guardian-invitations', [ManualMemberController::class, 'inviteGuardian'])->whereNumber('member')->middleware('throttle:10,1');
+            Route::post('members/{member}/account-invitations', [ManualMemberController::class, 'inviteAccount'])->whereNumber('member')->middleware('throttle:10,1');
             Route::get('members', [CommunityMemberController::class, 'index']);
             Route::get('card', [MemberCardController::class, 'show']);
             Route::post('members/{member}/approve', [CommunityMemberController::class, 'approve'])->whereNumber('member');
@@ -149,6 +165,7 @@ Route::prefix('v1')->group(function (): void {
                 Route::post('payments/{duesPayment}/approve', [CommunityDuesController::class, 'approve'])->whereNumber('duesPayment');
                 Route::post('payments/{duesPayment}/reject', [CommunityDuesController::class, 'reject'])->whereNumber('duesPayment');
                 Route::get('members', [CommunityDuesController::class, 'members']);
+
                 Route::get('members/{user}', [CommunityDuesController::class, 'member'])->whereNumber('user')->withoutScopedBindings();
                 Route::put('members/{user}/months/{month}', [CommunityDuesController::class, 'setMonth'])
                     ->whereNumber('user')
@@ -157,6 +174,14 @@ Route::prefix('v1')->group(function (): void {
                 Route::put('members/{user}/entry-fee', [CommunityDuesController::class, 'setEntryFee'])->whereNumber('user')->withoutScopedBindings();
             });
         });
+
+        Route::get('guardian-invitations', [GuardianController::class, 'invitations']);
+        Route::post('guardian-invitations/{invitation}/claim', [GuardianController::class, 'claim'])->whereNumber('invitation')->middleware('throttle:30,1');
+        Route::get('dependents', [GuardianController::class, 'index']);
+        Route::get('dependents/{identity}', [GuardianController::class, 'show'])->whereNumber('identity');
+        Route::put('dependents/{identity}', [GuardianController::class, 'update'])->whereNumber('identity');
+        Route::delete('guardian-grants/{grant}', [GuardianController::class, 'revoke'])->whereNumber('grant');
+        Route::get('dependents/{identity}/memberships/{member}/card', [GuardianController::class, 'card'])->whereNumber('identity')->whereNumber('member');
 
         Route::get('members/{user}', [MemberProfileController::class, 'show'])->whereNumber('user');
 

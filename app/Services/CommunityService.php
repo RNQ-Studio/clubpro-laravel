@@ -187,6 +187,15 @@ class CommunityService
         $this->assets->hardDelete($asset);
     }
 
+    /** @param array<string, mixed> $data */
+    public function update(User $actor, Community $community, array $data): Community
+    {
+        $community->update($data);
+        activity('community')->causedBy($actor)->performedOn($community)->event('community_updated')->log('community_updated');
+
+        return $community->refresh();
+    }
+
     private function assertNotDuplicate(User $owner, string $name): void
     {
         $exists = Community::query()

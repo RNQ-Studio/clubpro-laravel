@@ -25,18 +25,20 @@ class CommunityMemberController extends Controller
     public function index(Request $request, Community $community): JsonResponse
     {
         $data = $request->validate([
+            'search' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'role' => ['sometimes', 'nullable', Rule::enum(CommunityMemberRole::class)],
             'status' => ['sometimes', Rule::enum(CommunityMemberStatus::class)],
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes', 'integer', 'min:1', 'max:100'],
         ]);
 
         $status = CommunityMemberStatus::tryFrom($data['status'] ?? '') ?? CommunityMemberStatus::Active;
-        $this->authorize($status === CommunityMemberStatus::Pending ? 'manage' : 'viewMembers', $community);
+        $this->authorize($status === CommunityMemberStatus::Pending ? 'manageMembers' : 'viewMembers', $community);
 
         $perPage = min(max($request->integer('per_page', 50), 1), 100);
 
         return ApiResponse::success(
-            CommunityMemberResource::collection($this->members->paginate($community, $status, $perPage)),
+            CommunityMemberResource::collection($this->members->paginate($community, $status, $perPage, $data['search'] ?? null, $data['role'] ?? null)),
         );
     }
 
@@ -65,7 +67,7 @@ class CommunityMemberController extends Controller
 
     public function approve(Request $request, Community $community, CommunityMember $member): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageMembers', $community);
 
         return ApiResponse::success(
             $this->memberResource($this->members->approve($this->actor($request), $member)),
@@ -78,10 +80,10 @@ class CommunityMemberController extends Controller
      */
     public function updateRole(Request $request, Community $community, CommunityMember $member): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageMembers', $community);
 
         $data = $request->validate([
-            'role' => ['required', Rule::in([CommunityMemberRole::Admin->value, CommunityMemberRole::Member->value])],
+            'role' => ['required', Rule::in([CommunityMemberRole::Admin->value, CommunityMemberRole::Officer->value, CommunityMemberRole::Coach->value, CommunityMemberRole::Member->value])],
         ]);
 
         return ApiResponse::success(
@@ -95,7 +97,7 @@ class CommunityMemberController extends Controller
      */
     public function destroy(Request $request, Community $community, CommunityMember $member): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageMembers', $community);
 
         $this->members->remove($this->actor($request), $member);
 
@@ -112,6 +114,6 @@ class CommunityMemberController extends Controller
 
     private function memberResource(CommunityMember $member): CommunityMemberResource
     {
-        return new CommunityMemberResource($member->load('user'));
+        return new CommunityMemberResource($member->load(['user', 'identity']));
     }
 }

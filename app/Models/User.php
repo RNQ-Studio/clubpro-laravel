@@ -28,6 +28,7 @@ use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Permission\Traits\HasRoles;
 
 /**
+ * @property string|null $pin_hash
  * @property string $name
  * @property string $email
  * @property string|null $phone
@@ -66,7 +67,7 @@ use Spatie\Permission\Traits\HasRoles;
     'domicile_province_code', 'domicile_province_name', 'domicile_city_code', 'domicile_city_name',
     'nik_province_code', 'nik_province_name', 'nik_city_code', 'nik_city_name', 'nik_same_as_domicile',
 ])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'pin_hash', 'remember_token'])]
 class User extends Authenticatable implements FilamentUser, MustVerifyEmail, OAuthenticatable
 {
     /** @use HasFactory<UserFactory> */

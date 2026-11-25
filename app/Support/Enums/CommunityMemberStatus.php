@@ -6,4 +6,5 @@ enum CommunityMemberStatus: string
 {
     case Pending = 'pending';
     case Active = 'active';
+    case Archived = 'archived';
 }

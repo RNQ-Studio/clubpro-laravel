@@ -44,7 +44,7 @@ class CommunityDuesController extends Controller
         $user = $request->user();
         $year = $this->year($request);
         $member = $this->activeMember($community, $user);
-        $canManage = $user->can('manage', $community);
+        $canManage = $user->can('manageDues', $community);
 
         $payments = $community->duesPayments()
             ->where('user_id', $user->getKey())
@@ -56,6 +56,7 @@ class CommunityDuesController extends Controller
         $data = [
             'settings' => $this->settings($community),
             'can_manage' => $canManage,
+            'can_configure_dues' => $user->can('configureDues', $community),
             'year' => $year,
             'me' => $member === null ? null : [
                 ...$this->dues->memberCalendar($community, (int) $user->getKey(), $member, $year),
@@ -73,7 +74,7 @@ class CommunityDuesController extends Controller
 
     public function updateSettings(UpdateDuesSettingsRequest $request, Community $community): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('configureDues', $community);
 
         /** @var array{dues_amount: int, entry_fee: int, dues_start_date: string, dues_bank_name: string, dues_account_number: string, dues_account_name: string} $data */
         $data = $request->validated();
@@ -110,7 +111,7 @@ class CommunityDuesController extends Controller
     /** Pembayaran untuk diverifikasi: yang menunggu terlama dulu, riwayat terbaru dulu. */
     public function payments(Request $request, Community $community): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageDues', $community);
 
         $request->validate(['status' => ['sometimes', 'nullable', Rule::enum(DuesPaymentStatus::class)]]);
         $status = DuesPaymentStatus::tryFrom((string) $request->query('status', ''));
@@ -130,7 +131,7 @@ class CommunityDuesController extends Controller
 
     public function approve(Request $request, Community $community, DuesPayment $duesPayment): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageDues', $community);
 
         /** @var User $user */
         $user = $request->user();
@@ -143,7 +144,7 @@ class CommunityDuesController extends Controller
 
     public function reject(RejectDuesPaymentRequest $request, Community $community, DuesPayment $duesPayment): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageDues', $community);
 
         /** @var User $user */
         $user = $request->user();
@@ -157,7 +158,7 @@ class CommunityDuesController extends Controller
     /** Kalender iuran semua anggota aktif untuk [year]. */
     public function members(Request $request, Community $community): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageDues', $community);
 
         $request->validate(['search' => ['sometimes', 'nullable', 'string', 'max:100']]);
 
@@ -169,7 +170,7 @@ class CommunityDuesController extends Controller
     /** Kalender satu anggota beserta riwayat pembayarannya. */
     public function member(Request $request, Community $community, User $user): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageDues', $community);
 
         $member = $this->activeMember($community, $user);
         abort_if($member === null, 404, 'Anggota ini tidak aktif di komunitas ini.');
@@ -198,7 +199,7 @@ class CommunityDuesController extends Controller
 
     public function setMonth(SetDuesStatusRequest $request, Community $community, User $user, string $month): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageDues', $community);
         abort_if($this->activeMember($community, $user) === null, 404, 'Anggota ini tidak aktif di komunitas ini.');
 
         /** @var User $actor */
@@ -210,7 +211,7 @@ class CommunityDuesController extends Controller
 
     public function setEntryFee(SetDuesStatusRequest $request, Community $community, User $user): JsonResponse
     {
-        $this->authorize('manage', $community);
+        $this->authorize('manageDues', $community);
         $member = $this->activeMember($community, $user);
         abort_if($member === null, 404, 'Anggota ini tidak aktif di komunitas ini.');
 

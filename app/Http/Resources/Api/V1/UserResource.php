@@ -21,11 +21,13 @@ class UserResource extends JsonResource
 
         return [
             'id' => $this->id,
+            'pin_enabled' => $this->pin_hash !== null,
             'name' => $this->name,
             'email' => $this->email,
             'phone' => $this->phone,
             'avatar_url' => $this->avatarUrl(),
             'gender' => $this->gender?->value,
+            'birth_date' => $this->birth_date?->toDateString(),
             ...$profiles->regionAttributes($this->resource),
             'profile_completion' => $profiles->completion($this->resource),
             'is_active' => $this->is_active,
