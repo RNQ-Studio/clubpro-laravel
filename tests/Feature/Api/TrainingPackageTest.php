@@ -23,6 +23,7 @@ use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class TrainingPackageTest extends TestCase
@@ -309,6 +310,40 @@ class TrainingPackageTest extends TestCase
         $this->assertSame(7, $purchase->refresh()->remaining_sessions);
         $this->assertSame(100003, $purchase->remaining_amount);
         $this->travelBack();
+    }
+
+    public function test_domain_service_rejects_negative_or_fractional_money_without_writes_and_accepts_explicit_zero(): void
+    {
+        $count = TrainingLocation::query()->count();
+        foreach ([-1, 0.5, '6000'] as $invalid) {
+            try {
+                $this->training->saveLocation($this->founder, $this->community, [...$this->locationBody(), 'splits' => [['member_id' => $this->trainer->id, 'amount' => $invalid]]]);
+                $this->fail('Invalid domain split amount was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(422, $exception->getStatusCode());
+            }
+            $this->assertSame($count, TrainingLocation::query()->count());
+            $this->assertSame(1, $this->location->fresh()->version);
+        }
+        foreach ([100003.5, '100003'] as $invalid) {
+            $catalog = [...$this->catalog(), 'expected_version' => 1];
+            $catalog['packages'][0]['price'] = $invalid;
+            try {
+                $this->training->saveCatalog($this->founder, $this->community, $catalog);
+                $this->fail('Invalid domain package price was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(422, $exception->getStatusCode());
+            }
+            $this->assertSame(1, $this->training->catalog($this->community)->version);
+            $this->assertSame(100003, $this->training->catalog($this->community)->packages[0]['price']);
+        }
+        $zero = $this->training->saveLocation($this->founder, $this->community, [...$this->locationBody(), 'name' => 'Pembagian Nol', 'splits' => [['member_id' => $this->trainer->id, 'amount' => 0]]]);
+        $this->assertSame(0, $zero['splits'][0]['amount']);
+        $purchase = $this->buy();
+        $attendance = $this->training->confirm($this->coach, $this->community, $this->newSession($zero['id']), ['member_id' => $this->member->id, 'idempotency_key' => 'zero-valid']);
+        $this->assertSame(14286, $attendance->snapshot['residual']);
+        $this->assertSame(85717, $purchase->refresh()->remaining_amount);
+        $this->assertTrue($this->ledger->reconcile()['balanced']);
     }
 
     /** @return array<string,mixed> */

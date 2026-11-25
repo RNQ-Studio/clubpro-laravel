@@ -83,7 +83,10 @@ class TrainingService
             $this->founder($actor, $community);
             $catalog = $this->catalog($community);
             abort_unless($catalog->version === (int) $data['expected_version'], 409, 'Harga sudah berubah. Muat ulang sebelum menyimpan.');
-            $packages = array_map(fn (array $p): array => ['sessions' => (int) $p['sessions'], 'price' => (int) $p['price']], $data['packages']);
+            foreach ($data['packages'] as $package) {
+                abort_unless(is_int($package['price']) && is_int($package['sessions']), 422, 'Harga dan kuota paket harus bilangan bulat.');
+            }
+            $packages = $data['packages'];
             usort($packages, fn (array $a, array $b): int => $a['sessions'] <=> $b['sessions']);
             abort_unless(array_column($packages, 'sessions') === [7, 14, 21], 422, 'Isi tiga paket 7, 14, dan 21 latihan.');
             foreach ($packages as $index => $package) {
@@ -121,6 +124,7 @@ class TrainingService
             }
             $splits = [];
             foreach ($data['splits'] as $split) {
+                abort_unless(is_int($split['amount']) && $split['amount'] >= 0 && $split['amount'] <= (int) config('finance.max_transaction', 1000000000), 422, 'Nominal pembagian harus rupiah bulat, tidak negatif, dan dalam batas transaksi.');
                 $recipient = CommunityMember::query()->with('identity')->where('community_id', $community->id)->where('status', CommunityMemberStatus::Active)->whereNull('merged_into_member_id')->findOrFail($split['member_id']);
                 abort_if($recipient->member_identity_id === null || array_key_exists($recipient->id, $splits), 422, 'Penerima tidak valid atau berulang.');
                 $splits[$recipient->id] = ['member_id' => $recipient->id, 'identity_id' => $recipient->member_identity_id, 'name' => $recipient->identity->name ?? '', 'role' => $recipient->role->value, 'amount' => (int) $split['amount']];
