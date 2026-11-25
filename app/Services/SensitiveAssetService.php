@@ -7,9 +7,13 @@ use App\Models\Community;
 use App\Models\CommunityMember;
 use App\Models\DuesPayment;
 use App\Models\IncomingReceipt;
+use App\Models\Payout;
+use App\Models\PayoutFragment;
+use App\Models\PayoutPart;
 use App\Models\User;
 use App\Support\Enums\AssetStatus;
 use App\Support\Enums\StorageType;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use RuntimeException;
@@ -56,6 +60,16 @@ class SensitiveAssetService
             return null;
         }
 
+        if (Schema::hasTable('payout_fragments')) {
+            $fragment = PayoutFragment::query()->where('proof_asset_id', $asset->id)->first();
+            if ($fragment !== null) {
+                $part = PayoutPart::query()->findOrFail($fragment->payout_part_id);
+                $allowed = Payout::query()->findOrFail($part->payout_id)->user_id === $viewer->id || app(MoneyMovementService::class)->canManage($viewer, $part);
+
+                return $allowed ? URL::temporarySignedRoute('assets.file', now()->addMinutes(5), ['asset' => $asset->id]) : null;
+            }
+        }
+
         $allowed = $asset->user_id === $viewer->id;
         if (! $allowed) {
             $allowed = DuesPayment::query()->where('proof_asset_id', $asset->id)
@@ -67,6 +81,14 @@ class SensitiveAssetService
         if (! $allowed) {
             $allowed = IncomingReceipt::query()->where('proof_asset_id', $asset->id)->get()->contains(function (IncomingReceipt $receipt) use ($viewer): bool {
                 return $receipt->user_id === $viewer->id || app(IncomingReceiptService::class)->canReview($viewer, $receipt->community_id === null ? null : Community::query()->find($receipt->community_id), $receipt->purpose);
+            });
+        }
+
+        if (! $allowed && Schema::hasTable('payout_fragments')) {
+            $allowed = PayoutFragment::query()->where('proof_asset_id', $asset->id)->get()->contains(function (PayoutFragment $fragment) use ($viewer): bool {
+                $part = PayoutPart::query()->findOrFail($fragment->payout_part_id);
+
+                return Payout::query()->findOrFail($part->payout_id)->user_id === $viewer->id || app(MoneyMovementService::class)->canManage($viewer, $part);
             });
         }
 

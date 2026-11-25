@@ -33,7 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->dontFlash(['pin', 'pin_confirmation', 'current_pin', 'current_password', 'code', 'token']);
+        $exceptions->dontFlash(['pin', 'pin_confirmation', 'current_pin', 'current_password', 'code', 'token', 'account_number', 'account_name', 'bank_snapshot', 'details']);
         $exceptions->render(function (Throwable $e, Request $request) {
             if (! $request->is('api/*') && ! $request->expectsJson()) {
                 return null;

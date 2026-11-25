@@ -8,6 +8,9 @@ use App\Models\LedgerAccount;
 use App\Models\LedgerClearing;
 use App\Models\LedgerJournal;
 use App\Models\LedgerReservation;
+use App\Models\Payout;
+use App\Models\PayoutFragment;
+use App\Models\PayoutPart;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -77,6 +80,117 @@ class CustodyService
 
             return $journal;
         }, 3);
+    }
+
+    /** Finalize only the immutable source lots assigned to this payout part. */
+    public function payPart(User $actor, PayoutPart $part, PayoutFragment $fragment, string $key): LedgerJournal
+    {
+        return DB::transaction(function () use ($actor, $part, $fragment, $key): LedgerJournal {
+            $part = PayoutPart::query()->lockForUpdate()->findOrFail($part->id);
+            $this->authorizeCustodian($actor, $part->custodian_key);
+            $fragment = PayoutFragment::query()->where('payout_part_id', $part->id)->lockForUpdate()->findOrFail($fragment->id);
+            $previous = LedgerJournal::query()->where('operation', 'manual_payout')->where('metadata->fragment_id', $fragment->id)->first();
+            if ($previous !== null) {
+                abort_unless($previous->actor_id === $actor->id && $previous->idempotency_key === $key, 409, 'Bukti sudah difinalkan.');
+
+                return $previous;
+            }
+            abort_unless($fragment->status === 'pending' && in_array($part->status, ['processing', 'uncertain'], true) && $part->verified_amount + $fragment->amount <= $part->amount, 409, 'Bukti atau pencairan sudah final.');
+
+            return $this->doPayPart($actor, $part, $fragment, $key);
+        }, 3);
+    }
+
+    private function doPayPart(User $actor, PayoutPart $part, PayoutFragment $fragment, string $key): LedgerJournal
+    {
+        $this->authorizeCustodian($actor, $part->custodian_key);
+        $reservation = LedgerReservation::query()->lockForUpdate()->findOrFail($part->reservation_id);
+        $proof = Asset::query()->findOrFail($fragment->proof_asset_id);
+        $digest = $this->receipts->proofDigest($proof);
+        abort_unless(hash_equals($fragment->proof_digest, $digest), 422, 'Bukti berubah sejak diunggah.');
+        $cash = $this->ledger->cashAccount($part->custodian_key);
+        LedgerAccount::query()->orderBy('id')->lockForUpdate()->get();
+        abort_if($cash->fresh()->balance + $fragment->amount > 0, 422, 'Kas sumber belum mencukupi; sisa dana tetap ditahan.');
+        $allocations = $this->takePartLots($part, $fragment->amount);
+        $journal = $this->ledger->post($actor, $key, 'manual_payout', [
+            ['account_id' => $reservation->reserved_account_id, 'amount' => -$fragment->amount],
+            ['account_id' => $cash->id, 'amount' => $fragment->amount],
+        ], $part->community_id === null ? null : Community::query()->findOrFail($part->community_id), [
+            'reference' => $fragment->bank_reference, 'payout_part_id' => $part->id,
+            'fragment_id' => $fragment->id, 'reservation_id' => $reservation->id,
+            'amount' => $fragment->amount, 'handler_custodian' => $part->custodian_key,
+        ], function () use ($part, $fragment, $reservation, $allocations): void {
+            foreach ($allocations['taken'] as $lot) {
+                $updated = DB::table('ledger_lot_holdings')->where('receipt_id', $lot['receipt_id'])->where('account_id', $reservation->reserved_account_id)->where('amount', '>=', $lot['amount'])->decrement('amount', $lot['amount']);
+                abort_unless($updated === 1, 409, 'Sumber dana pencairan tidak dapat direkonsiliasi.');
+            }
+            $part->update(['allocations' => $allocations['remaining']]);
+            $reservation->update(['remaining' => $reservation->remaining - $fragment->amount, 'status' => $reservation->remaining === $fragment->amount ? 'finalized' : 'reserved']);
+        });
+        $this->recordProof($actor, $proof, $digest, $fragment->bank_reference, $journal);
+
+        return $journal;
+    }
+
+    /** Release only the unsent lots of this part; caller authorizes the domain transition. */
+    public function releasePart(User $actor, PayoutPart $part, string $key, string $reason): LedgerJournal
+    {
+        return DB::transaction(function () use ($actor, $part, $key, $reason): LedgerJournal {
+            $part = PayoutPart::query()->lockForUpdate()->findOrFail($part->id);
+            $payout = Payout::query()->findOrFail($part->payout_id);
+            abort_unless(app(MoneyMovementService::class)->canManage($actor, $part) || ($payout->user_id === $actor->id && in_array($part->status, ['requested', 'cancelled'], true)), 403);
+            $previous = LedgerJournal::query()->where('operation', 'payout_release')->where('metadata->payout_part_id', $part->id)->first();
+            if ($previous !== null) {
+                abort_unless($previous->actor_id === $actor->id && $previous->idempotency_key === $key && ($previous->metadata['reason'] ?? null) === $reason, 409, 'Dana sudah dilepas.');
+
+                return $previous;
+            }
+            abort_unless(trim($reason) !== '' && $part->verified_amount === 0 && in_array($part->status, ['requested', 'processing', 'uncertain'], true) && ! PayoutFragment::query()->where('payout_part_id', $part->id)->whereIn('status', ['pending', 'verified'])->exists(), 409, 'Dana tidak dapat dilepas.');
+
+            return $this->doReleasePart($actor, $part, $key, $reason);
+        }, 3);
+    }
+
+    private function doReleasePart(User $actor, PayoutPart $part, string $key, string $reason): LedgerJournal
+    {
+        $reservation = LedgerReservation::query()->lockForUpdate()->findOrFail($part->reservation_id);
+        $amount = $part->amount - $part->verified_amount;
+        $allocations = $this->takePartLots($part, $amount);
+
+        return $this->ledger->post($actor, $key, 'payout_release', [
+            ['account_id' => $reservation->reserved_account_id, 'amount' => -$amount],
+            ['account_id' => $reservation->available_account_id, 'amount' => $amount],
+        ], $part->community_id === null ? null : Community::query()->findOrFail($part->community_id), ['reference' => $part->payout_id, 'payout_part_id' => $part->id, 'reason' => $reason], function () use ($part, $reservation, $amount, $allocations): void {
+            foreach ($allocations['taken'] as $lot) {
+                $updated = DB::table('ledger_lot_holdings')->where('receipt_id', $lot['receipt_id'])->where('account_id', $reservation->reserved_account_id)->where('amount', '>=', $lot['amount'])->decrement('amount', $lot['amount']);
+                abort_unless($updated === 1, 409, 'Sumber dana pencairan tidak cocok.');
+                DB::table('ledger_lot_holdings')->insertOrIgnore(['receipt_id' => $lot['receipt_id'], 'account_id' => $reservation->available_account_id, 'amount' => 0]);
+                DB::table('ledger_lot_holdings')->where('receipt_id', $lot['receipt_id'])->where('account_id', $reservation->available_account_id)->increment('amount', $lot['amount']);
+            }
+            $part->update(['allocations' => $allocations['remaining']]);
+            $reservation->update(['remaining' => $reservation->remaining - $amount, 'status' => $reservation->remaining === $amount ? 'released' : 'reserved']);
+        });
+    }
+
+    /** @return array{taken:list<array{receipt_id:string,amount:int}>,remaining:list<array{receipt_id:string,amount:int,remaining:int}>} */
+    private function takePartLots(PayoutPart $part, int $amount): array
+    {
+        $this->ledger->assertAmount($amount);
+        $remaining = $amount;
+        $taken = [];
+        $allocations = $part->allocations;
+        foreach ($allocations as &$allocation) {
+            $value = min($remaining, $allocation['remaining']);
+            if ($value > 0) {
+                $taken[] = ['receipt_id' => $allocation['receipt_id'], 'amount' => $value];
+                $allocation['remaining'] -= $value;
+                $remaining -= $value;
+            }
+        }
+        unset($allocation);
+        abort_unless($remaining === 0, 409, 'Sumber dana pencairan sudah terpakai.');
+
+        return ['taken' => $taken, 'remaining' => $allocations];
     }
 
     public function settle(User $actor, LedgerClearing $clearing, Asset $proof, string $bankReference, string $key): LedgerJournal

@@ -7,9 +7,11 @@ use App\Models\Banner;
 use App\Models\Community;
 use App\Models\DuesPayment;
 use App\Models\IncomingReceipt;
+use App\Models\PayoutFragment;
 use App\Models\User;
 use App\Support\Enums\AssetStatus;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -52,7 +54,8 @@ class ImageAssetGuard
             || DB::table('community_photos')->whereIn('asset_id', $ids)->exists()
             || Banner::query()->whereIn('image', $ids)->exists()
             || DuesPayment::query()->whereIn('proof_asset_id', $ids)->exists()
-            || IncomingReceipt::query()->whereIn('proof_asset_id', $ids)->exists();
+            || IncomingReceipt::query()->whereIn('proof_asset_id', $ids)->exists()
+            || (Schema::hasTable('payout_fragments') && PayoutFragment::query()->whereIn('proof_asset_id', $ids)->exists());
 
         if ($taken) {
             throw ValidationException::withMessages([$field => ['Foto ini sudah dipakai. Unggah ulang fotonya.']]);

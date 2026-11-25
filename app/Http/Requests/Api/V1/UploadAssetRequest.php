@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Api\V1;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
 class UploadAssetRequest extends FormRequest
 {
@@ -28,8 +29,9 @@ class UploadAssetRequest extends FormRequest
             'file' => [
                 'required',
                 'file',
-                'max:51200', // 50 MB dalam kilobyte
-                'mimes:jpeg,jpg,png,webp,gif,svg,mp4,mov,avi,webm,mp3,wav,ogg,m4a,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv',
+                Rule::when($this->input('type') === 'payout-proof', ['image', 'dimensions:min_width=1,min_height=1,max_width=16000,max_height=16000']),
+                $this->input('type') === 'payout-proof' ? 'max:5120' : 'max:51200', // 50 MB dalam kilobyte
+                $this->input('type') === 'payout-proof' ? 'mimes:jpeg,jpg,png,webp' : 'mimes:jpeg,jpg,png,webp,gif,svg,mp4,mov,avi,webm,mp3,wav,ogg,m4a,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv',
             ],
             'type' => ['required', 'string', 'max:255'], // kategori logis file → folder GCS & kolom category
             'retain_until' => ['nullable', 'date'], // tidak diisi → NULL → file permanen

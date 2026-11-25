@@ -137,6 +137,11 @@ class PayoutIntegrityTest extends TestCase
         $this->assertNull($part->community_id, 'Platform receipt context is not its payout handler.');
         $this->assertTrue($this->movement->canManage($operator, $part));
         $this->assertFalse($this->movement->canManage($this->founder, $part));
+        Passport::actingAs($operator);
+        $this->getJson('/api/v1/payouts?scope=manage&handler=platform&status=requested')->assertOk()->assertJsonPath('data.items.0.amount', 80000)->assertJsonPath('data.items.0.parts.0.community_id', null);
+        $this->getJson('/api/v1/payout-reconciliation')->assertOk()->assertJsonPath('data.held_amount', 80000)->assertJsonPath('data.balanced', true);
+        Passport::actingAs($this->founder);
+        $this->getJson('/api/v1/payouts?scope=manage&handler=platform')->assertForbidden();
         $fragment = $this->fragment($part, 80000, $operator);
         $this->movement->verifyFragment($operator, $part->fresh(), $fragment, ['expected_version' => $part->fresh()->version, 'idempotency_key' => (string) Str::uuid()]);
         $this->assertSame('succeeded', $payout->fresh()->status);
