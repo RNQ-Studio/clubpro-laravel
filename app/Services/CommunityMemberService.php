@@ -55,32 +55,29 @@ class CommunityMemberService
      */
     public function join(User $user, Community $community): CommunityMember
     {
-        if ($community->status !== CommunityStatus::Approved) {
-            $this->reject('community', 'Komunitas ini belum terverifikasi.');
-        }
-
-        $existing = $community->membershipOf($user);
-        if ($existing?->status === CommunityMemberStatus::Archived) {
-            $existing->update(['status' => CommunityMemberStatus::Pending]);
-            app(BillingService::class)->initializeJoin($existing);
-
-            return $existing->refresh();
-        }
-        if ($existing !== null) {
-            return $existing;
-        }
-
         try {
-            $member = $community->members()->create([
-                'user_id' => $user->getKey(),
-                'role' => CommunityMemberRole::Member,
-                'status' => CommunityMemberStatus::Pending,
-            ]);
-            app(BillingService::class)->initializeJoin($member);
+            return DB::transaction(function () use ($user, $community): CommunityMember {
+                $community = Community::query()->whereKey($community->id)->lockForUpdate()->firstOrFail();
+                if ($community->status !== CommunityStatus::Approved) {
+                    $this->reject('community', 'Komunitas ini belum terverifikasi.');
+                }
+                $existing = $community->members()->where('user_id', $user->id)->lockForUpdate()->first();
+                if ($existing?->status === CommunityMemberStatus::Archived) {
+                    app(BillingService::class)->prepareArchivedMembership($existing);
+                    $existing->update(['status' => CommunityMemberStatus::Pending]);
+                    app(BillingService::class)->initializeJoin($existing);
 
-            return $member->refresh();
+                    return $existing->refresh();
+                }
+                if ($existing !== null) {
+                    return $existing;
+                }
+                $member = $community->members()->create(['user_id' => $user->id, 'role' => CommunityMemberRole::Member, 'status' => CommunityMemberStatus::Pending]);
+                app(BillingService::class)->initializeJoin($member);
+
+                return $member->refresh();
+            }, 3);
         } catch (UniqueConstraintViolationException) {
-            // Ketuk ganda bersamaan: permintaan pertama sudah tercatat.
             return $community->membershipOf($user) ?? throw new \LogicException('Keanggotaan hilang.');
         }
     }
@@ -119,7 +116,14 @@ class CommunityMemberService
                 $this->reject('member', 'Pengguna ini sudah menjadi anggota.');
             }
 
+            if ($member->status === CommunityMemberStatus::Archived) {
+                app(BillingService::class)->prepareArchivedMembership($member);
+                app(BillingService::class)->memberSubject($member, true);
+            } else {
+                app(BillingService::class)->memberSubject($member);
+            }
             $member->update(['status' => CommunityMemberStatus::Active, 'joined_at' => $member->joined_at ?? now()]);
+            app(BillingService::class)->initializeJoin($member);
 
             $this->log($actor, $member, 'community_member_approved');
 

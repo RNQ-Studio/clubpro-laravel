@@ -34,6 +34,10 @@ class BillingService
         $key = 'member:'.$member->community_id.':'.$identity;
         $existing = BillingSubject::query()->where('subject_key', $key)->first();
         if ($existing !== null) {
+            if ($newJoin && $existing->archived_at === null && $existing->scheme === 'legacy_calendar' && $existing->trial_start === null && ! $this->hasMembershipHistory($member) && ! BillingSubject::query()->whereIn('id', $this->subjectIds($existing))->whereNotNull('trial_start')->exists()) {
+                $start = $member->community->billing_cutover_date === null ? $this->today() : $this->date($member->community->billing_cutover_date);
+                $existing->update(['scheme' => 'anniversary', 'trial_start' => $start->toDateString(), 'trial_end' => $start->addDays(7)->toDateString(), 'anchor_date' => $start->addDays(7)->toDateString(), 'next_offset' => 0]);
+            }
             if ($member->merged_into_member_id === null && $member->billing_scheme !== $existing->scheme) {
                 $member->forceFill(['billing_scheme' => $existing->scheme])->save();
             }
@@ -44,9 +48,9 @@ class BillingService
             return $existing;
         }
         $community = $member->community;
-        $legacy = ! $newJoin && $member->billing_scheme === 'legacy_calendar';
+        $priorPaid = $this->hasMembershipHistory($member);
+        $legacy = $member->billing_scheme === 'legacy_calendar' && (! $newJoin || $priorPaid);
         $start = $newJoin ? $this->today() : $this->date($member->joined_at ?? $member->created_at ?? $this->today());
-        $priorPaid = $member->entry_fee_paid_at !== null || $member->joined_at !== null || ($member->user_id !== null && DuesPayment::query()->where('community_id', $community->id)->where('user_id', $member->user_id)->where('status', 'approved')->exists()) || ($member->user_id !== null && DuesMonth::query()->where('community_id', $community->id)->where('user_id', $member->user_id)->where('status', DuesMonthStatus::Paid)->exists());
         $autoActivate = $legacy && $member->status === CommunityMemberStatus::Pending && ! $priorPaid;
         if ($autoActivate) {
             $legacy = false;
@@ -94,32 +98,45 @@ class BillingService
         if ($subject->archived_at === null && $member->status === CommunityMemberStatus::Pending) {
             $member->update(['status' => CommunityMemberStatus::Active, 'joined_at' => $member->joined_at ?? now()]);
         }
+        $this->resumeSubject($subject, $member);
+        $this->refresh($subject);
+    }
+
+    private function resumeSubject(BillingSubject $subject, CommunityMember $member): void
+    {
         if ($subject->archived_at === null && $subject->paused_at !== null) {
             $oldAnchor = $subject->anchor_date->toDateString();
-            $lastEnd = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($subject))->where('kind', '!=', 'entry')->where('status', '!=', 'void')->max('period_end');
             $anchor = $this->today();
-            foreach ([$lastEnd, $subject->trial_end] as $candidate) {
-                if ($candidate !== null && $this->date($candidate)->greaterThan($anchor)) {
-                    $anchor = $this->date($candidate);
+            if ($subject->trial_end !== null && $this->date($subject->trial_end)->greaterThan($anchor)) {
+                $anchor = $this->date($subject->trial_end);
+            }
+            $legacyCurrentEnd = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($subject))->where('kind', 'member')->where('status', 'paid')->where('legacy_month', $this->today()->format('Y-m'))->max('period_end');
+            if ($legacyCurrentEnd !== null && $this->date($legacyCurrentEnd)->greaterThan($anchor)) {
+                $anchor = $this->date($legacyCurrentEnd);
+            }
+            for ($i = 0; $i < 2400; $i++) {
+                $coveringEnd = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($subject))->where('kind', '!=', 'entry')->where('status', '!=', 'void')->whereDate('period_start', '<=', $anchor->toDateString())->whereDate('period_end', '>', $anchor->toDateString())->max('period_end');
+                if ($coveringEnd === null) {
+                    break;
                 }
+                $anchor = $this->date($coveringEnd);
             }
             $subject->update(['anchor_date' => $anchor->toDateString(), 'next_offset' => 0, 'scheme' => 'anniversary', 'paused_at' => null]);
             $member->forceFill(['billing_scheme' => 'anniversary'])->save();
             activity('billing')->performedOn($member->community)->event('billing_membership_resumed')->withProperties(['member_id' => $member->id, 'old_anchor' => $oldAnchor, 'new_anchor' => $anchor->toDateString(), 'trial_preserved' => true, 'archived_gap_not_billed' => true])->log('billing_membership_resumed');
         }
-        $this->refresh($subject);
     }
 
-    public function refresh(BillingSubject $subject, bool $renew = false, ?CarbonImmutable $through = null): BillingSubject
+    public function refresh(BillingSubject $subject, bool $renew = false, ?CarbonImmutable $through = null, bool $historicalArchive = false): BillingSubject
     {
-        return DB::transaction(function () use ($subject, $renew, $through): BillingSubject {
+        return DB::transaction(function () use ($subject, $renew, $through, $historicalArchive): BillingSubject {
             $subject = BillingSubject::query()->whereKey($subject->id)->lockForUpdate()->firstOrFail();
             if ($subject->merged_into_subject_id !== null) {
-                return $this->refresh(BillingSubject::query()->findOrFail($subject->merged_into_subject_id), $renew, $through);
+                return $this->refresh(BillingSubject::query()->findOrFail($subject->merged_into_subject_id), $renew, $through, $historicalArchive);
             }
             $community = Community::query()->findOrFail($subject->community_id);
             $member = $subject->member_id === null ? null : CommunityMember::query()->findOrFail($subject->member_id);
-            if ($subject->archived_at !== null || $member?->status === CommunityMemberStatus::Archived) {
+            if ($subject->archived_at !== null || ($member?->status === CommunityMemberStatus::Archived && ! $historicalArchive)) {
                 return $subject;
             }
             $this->restoreLegacyRows($subject, $community, $member);
@@ -136,6 +153,25 @@ class BillingService
                 }
                 $period = $subject->kind === 'platform' || $subject->scheme === 'legacy_calendar' ? 1 : max(1, (int) $community->dues_period_months);
                 $end = $anchor->addMonthsNoOverflow($subject->next_offset + $period);
+                $nominalEnd = $end;
+                $prorated = false;
+                if ($subject->scheme === 'anniversary' && $subject->kind === 'member') {
+                    $covering = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($subject))->where('kind', 'member')->where('status', '!=', 'void')->whereDate('period_start', '<=', $start->toDateString())->whereDate('period_end', '>', $start->toDateString())->orderByDesc('period_end')->first();
+                    if ($covering !== null) {
+                        $anchor = $this->date($covering->period_end);
+                        $subject->update(['anchor_date' => $anchor->toDateString(), 'next_offset' => 0]);
+                        if ($renew) {
+                            $today = $anchor;
+                        }
+
+                        continue;
+                    }
+                    $nextCommitted = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($subject))->where('kind', 'member')->where('status', '!=', 'void')->whereDate('period_start', '>', $start->toDateString())->whereDate('period_start', '<', $end->toDateString())->orderBy('period_start')->first();
+                    if ($nextCommitted !== null) {
+                        $end = $this->date($nextCommitted->period_start);
+                        $prorated = true;
+                    }
+                }
                 if ($subject->scheme === 'legacy_calendar') {
                     // Legacy inclusive due-day rights become exclusive the following midnight.
                     $month = $anchor->startOfMonth()->addMonths($subject->next_offset);
@@ -158,9 +194,17 @@ class BillingService
                 } elseif ($legacyNominalUnknown) {
                     $amount = 0;
                 }
+                $proration = [];
+                if ($prorated) {
+                    $nominalAmount = $amount;
+                    $nominalDays = (int) $start->diffInDays($nominalEnd);
+                    $coveredDays = (int) $start->diffInDays($end);
+                    $amount = $nominalAmount === 0 ? 0 : max(1, intdiv($nominalAmount * $coveredDays + intdiv($nominalDays, 2), $nominalDays));
+                    $proration = ['prorated' => true, 'nominal_amount' => $nominalAmount, 'nominal_period_start' => $start->toDateString(), 'nominal_period_end' => $nominalEnd->toDateString(), 'nominal_days' => $nominalDays, 'covered_days' => $coveredDays, 'rounding' => 'nearest_rupiah_minimum_one', 'reason' => 'protected_legacy_commitment'];
+                }
                 $paid = $legacyRow?->status === DuesMonthStatus::Paid || $amount === 0;
                 $this->invoice($subject, $subject->kind, $start, $end, $amount, $paid, $legacyMonth, [
-                    'period_months' => $period, 'role' => $member?->role->value, 'exempt' => $exempt,
+                    ...$proration, 'period_months' => $period, 'role' => $member?->role->value, 'exempt' => $exempt,
                     'legacy_dues_payment_id' => $legacyRow?->dues_payment_id,
                     'legacy_paid' => $legacyRow?->status === DuesMonthStatus::Paid, 'legacy_nominal_unrecorded' => $legacyNominalUnknown,
                 ]);
@@ -173,10 +217,15 @@ class BillingService
                         'snapshot' => ['entry_fee' => $legacyEntryPayment === null ? $community->entry_fee : $legacyEntryPayment->entry_fee, 'legacy_dues_payment_id' => $legacyEntryPayment?->id, 'role' => $member?->role->value],
                     ]);
                 }
-                $subject->next_offset += $period;
+                if ($prorated) {
+                    $anchor = $end;
+                    $subject->forceFill(['anchor_date' => $end->toDateString(), 'next_offset' => 0]);
+                } else {
+                    $subject->next_offset += $period;
+                }
                 $subject->save();
             }
-            $this->importLegacyPaid($subject, $community, $member);
+            $this->importLegacyCalendarRows($subject, $community, $member);
             $state = $this->resolve($subject, $community, $member);
             if (! $state['active'] && $state['state'] !== 'archived' && $subject->inactive_at === null) {
                 $expiredAt = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($subject))->whereIn('status', ['open', 'partially_paid'])->min('period_start');
@@ -204,24 +253,32 @@ class BillingService
         $today = $this->today();
         $invoices = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($subject))->where('status', '!=', 'void')->get();
         $arrears = (int) $invoices->filter(fn (BillingInvoice $invoice): bool => $this->date($invoice->period_start)->lessThanOrEqualTo($today))->sum(fn (BillingInvoice $invoice): int => max(0, $invoice->amount - $invoice->paid_amount));
-        $current = $invoices->filter(fn (BillingInvoice $invoice): bool => $invoice->kind !== 'entry' && $this->date($invoice->period_start)->lessThanOrEqualTo($today) && $this->date($invoice->period_end)->greaterThan($today))->last();
-        $state = 'expired';
-        $until = null;
-        foreach ($invoices->where('kind', '!=', 'entry')->sortBy('period_start') as $invoice) {
-            if ($invoice->status !== 'paid') {
-                break;
+        $memberInvoices = $invoices->filter(fn (BillingInvoice $invoice): bool => $invoice->kind !== 'entry');
+        $paid = $memberInvoices->where('status', 'paid')->sortBy('period_start');
+        $current = $paid->filter(fn (BillingInvoice $invoice): bool => ($this->date($invoice->period_start)->lessThanOrEqualTo($today) && $this->date($invoice->period_end)->greaterThan($today)) || ($invoice->legacy_month === $today->format('Y-m')))->sortByDesc('period_end')->first();
+        $trialActive = $subject->trial_end !== null && $today->lessThan($this->date($subject->trial_end));
+        $firstUnpaid = $memberInvoices->filter(fn (BillingInvoice $invoice): bool => $invoice->paid_amount < $invoice->amount && $this->date($invoice->period_start)->lessThanOrEqualTo($today))->min('period_start');
+        $limit = $firstUnpaid === null ? $today : $this->date($firstUnpaid);
+        $historicalEnd = $paid->filter(fn (BillingInvoice $invoice): bool => $this->date($invoice->period_end)->lessThanOrEqualTo($limit))->max('period_end');
+        $until = $historicalEnd === null ? null : $this->date($historicalEnd)->toDateString();
+        $coveredUntil = $trialActive ? $subject->trial_end->toDateString() : $current?->period_end->toDateString();
+        if ($coveredUntil !== null) {
+            foreach ($paid as $invoice) {
+                if ($this->date($invoice->period_start)->lessThanOrEqualTo($this->date($coveredUntil)) && $this->date($invoice->period_end)->greaterThan($this->date($coveredUntil))) {
+                    $coveredUntil = $invoice->period_end->toDateString();
+                }
             }
-            $until = $invoice->period_end->toDateString();
+            if ($arrears === 0) {
+                $until = $coveredUntil;
+            }
         }
+        $state = 'expired';
         if ($subject->archived_at !== null || $member?->status === CommunityMemberStatus::Archived) {
             $state = 'archived';
-        } elseif ($subject->trial_end !== null && $today->lessThan($this->date($subject->trial_end))) {
+        } elseif ($trialActive && $arrears === 0) {
             $state = 'trial';
-            if ($until === null || $this->date($until)->lessThan($this->date($subject->trial_end))) {
-                $until = $subject->trial_end->toDateString();
-            }
-        } elseif ($arrears === 0 && ($current !== null || ($until !== null && $this->date($until)->greaterThan($today)))) {
-            $state = ($current?->snapshot['exempt'] ?? false) ? 'exempt' : 'active';
+        } elseif ($arrears === 0 && $current !== null) {
+            $state = ($current->snapshot['exempt'] ?? false) ? 'exempt' : 'active';
         } elseif ($subject->scheme === 'legacy_calendar' && ($community->dues_amount ?? 0) <= 0 && $arrears === 0) {
             $state = 'exempt';
             $until = null;
@@ -598,6 +655,39 @@ class BillingService
         ]);
     }
 
+    private function hasMembershipHistory(CommunityMember $member): bool
+    {
+        return $member->joined_at !== null || $member->entry_fee_paid_at !== null
+            || ($member->user_id !== null && DuesPayment::query()->where('community_id', $member->community_id)->where('user_id', $member->user_id)->whereIn('status', [DuesPaymentStatus::Pending, DuesPaymentStatus::Approved])->exists())
+            || ($member->user_id !== null && DuesMonth::query()->where('community_id', $member->community_id)->where('user_id', $member->user_id)->where('status', DuesMonthStatus::Paid)->exists())
+            || BillingInvoice::query()->whereIn('subject_id', BillingSubject::query()->where('community_id', $member->community_id)->where(fn ($query) => $query->where('member_id', $member->id)->orWhere('member_identity_id', $member->member_identity_id))->select('id'))->where('status', '!=', 'void')->where('amount', '>', 0)->exists()
+            || CommunityMember::query()->where('merged_into_member_id', $member->id)->where(fn ($query) => $query->whereNotNull('joined_at')->orWhereNotNull('entry_fee_paid_at'))->exists();
+    }
+
+    /** Rebuild a pre-cutover archived record before rejoin/merge changes its status or timestamp. */
+    public function prepareArchivedMembership(CommunityMember $member): BillingSubject
+    {
+        $archiveDate = $this->date($member->updated_at ?? $member->created_at ?? $member->joined_at ?? $this->today());
+        if ($member->joined_at !== null && $this->date($member->joined_at)->greaterThan($archiveDate)) {
+            $archiveDate = $this->date($member->joined_at);
+        }
+        if ($archiveDate->greaterThan($this->today())) {
+            $archiveDate = $this->today();
+        }
+        $hasHistory = $this->hasMembershipHistory($member);
+        $subject = $this->memberSubject($member);
+        if ($member->status !== CommunityMemberStatus::Archived || $subject->archived_at !== null || $subject->paused_at !== null) {
+            return $subject;
+        }
+        if ($hasHistory || $subject->trial_start !== null) {
+            $subject = $this->refresh($subject, false, $archiveDate, true);
+        }
+        $subject->update(['paused_at' => $archiveDate->toDateString()]);
+        activity('billing')->performedOn($member->community)->event('billing_legacy_archive_prepared')->withProperties(['member_id' => $member->id, 'archive_date' => $archiveDate->toDateString(), 'historical_cutoff' => true, 'prior_membership_history' => $hasHistory, 'no_new_trial' => true])->log('billing_legacy_archive_prepared');
+
+        return $subject;
+    }
+
     public function pauseMembership(CommunityMember $member): void
     {
         $subject = $this->refresh($this->memberSubject($member));
@@ -613,16 +703,45 @@ class BillingService
     public function mergeIdentity(MemberIdentity $source, MemberIdentity $target, User $actor): void
     {
         foreach ($source->memberships()->whereNull('merged_into_member_id')->get() as $sourceMember) {
-            $sourceSubject = $this->refresh($this->memberSubject($sourceMember));
+            $sourceSubject = $sourceMember->status === CommunityMemberStatus::Archived ? $this->prepareArchivedMembership($sourceMember) : $this->refresh($this->memberSubject($sourceMember));
             $canonicalMember = $target->memberships()->where('community_id', $sourceMember->community_id)->first();
-            $targetSubject = $canonicalMember === null ? null : $this->refresh($this->memberSubject($canonicalMember));
-            $primary = $targetSubject !== null && $this->date($targetSubject->trial_start ?? $targetSubject->anchor_date)->lessThan($this->date($sourceSubject->trial_start ?? $sourceSubject->anchor_date)) ? $targetSubject : $sourceSubject;
+            $targetSubject = $canonicalMember === null ? null : ($canonicalMember->status === CommunityMemberStatus::Archived ? $this->prepareArchivedMembership($canonicalMember) : $this->refresh($this->memberSubject($canonicalMember)));
+            $sourceCold = ! $this->hasMembershipHistory($sourceMember) && $sourceSubject->trial_start === null;
+            $targetCold = $canonicalMember !== null && ! $this->hasMembershipHistory($canonicalMember) && $targetSubject?->trial_start === null;
+            $primary = $sourceSubject;
+            if ($targetSubject !== null) {
+                if ($sourceCold && ! $targetCold) {
+                    $primary = $targetSubject;
+                } elseif (! $sourceCold && $sourceSubject->scheme === 'legacy_calendar' && $targetSubject->scheme !== 'legacy_calendar') {
+                    $primary = $sourceSubject;
+                } elseif (! $targetCold && $targetSubject->scheme === 'legacy_calendar' && $sourceSubject->scheme !== 'legacy_calendar') {
+                    $primary = $targetSubject;
+                } elseif (! $targetCold && $this->date($targetSubject->trial_start ?? $targetSubject->anchor_date)->lessThan($this->date($sourceSubject->trial_start ?? $sourceSubject->anchor_date))) {
+                    $primary = $targetSubject;
+                }
+            }
             $secondary = $targetSubject === null ? null : ($primary->id === $sourceSubject->id ? $targetSubject : $sourceSubject);
             if ($secondary !== null) {
                 $secondary->update(['subject_key' => 'merged:'.$secondary->id.':'.$secondary->subject_key, 'merged_into_subject_id' => $primary->id]);
                 BillingSubject::query()->where('merged_into_subject_id', $secondary->id)->update(['merged_into_subject_id' => $primary->id]);
             }
             $primary->update(['subject_key' => 'member:'.$sourceMember->community_id.':'.$target->id, 'member_identity_id' => $target->id, 'member_id' => $canonicalMember === null ? $sourceMember->id : $canonicalMember->id]);
+            if ($canonicalMember !== null) {
+                $paidEntryAt = $canonicalMember->entry_fee_paid_at ?? $sourceMember->entry_fee_paid_at;
+                if ($paidEntryAt !== null) {
+                    if ($canonicalMember->entry_fee_paid_at === null) {
+                        $canonicalMember->forceFill(['entry_fee_paid_at' => $paidEntryAt])->save();
+                    }
+                    $duplicates = BillingInvoice::query()->whereIn('subject_id', $this->subjectIds($primary))->where('kind', 'entry')->whereIn('status', ['open', 'partially_paid'])->lockForUpdate()->get();
+                    foreach ($duplicates as $duplicate) {
+                        $duplicate->update(['status' => 'void']);
+                    }
+                    activity('billing')->causedBy($actor)->performedOn($sourceMember->community)->event('billing_entry_entitlement_merged')->withProperties(['source_member_id' => $sourceMember->id, 'canonical_member_id' => $canonicalMember->id, 'paid_at' => $paidEntryAt->toIso8601String(), 'duplicate_invoice_ids' => $duplicates->pluck('id')->all(), 'reason' => 'entry_fee_already_settled_before_identity_merge', 'cash_unchanged' => true])->log('billing_entry_entitlement_merged');
+                }
+                if ($canonicalMember->status !== CommunityMemberStatus::Archived) {
+                    $this->resumeSubject($primary, $canonicalMember);
+                }
+            }
             activity('billing')->causedBy($actor)->performedOn($sourceMember->community)->event('billing_identity_merged')->withProperties(['source_identity_id' => $source->id, 'target_identity_id' => $target->id, 'subject_id' => $primary->id, 'merged_subject_id' => $secondary?->id, 'trial_preserved' => true, 'historical_obligations_preserved' => true])->log('billing_identity_merged');
         }
     }
@@ -645,13 +764,16 @@ class BillingService
         }
     }
 
-    private function importLegacyPaid(BillingSubject $subject, Community $community, ?CommunityMember $member): void
+    private function importLegacyCalendarRows(BillingSubject $subject, Community $community, ?CommunityMember $member): void
     {
         if ($subject->scheme !== 'legacy_calendar' || $member?->user_id === null) {
             return;
         }
-        $rows = DuesMonth::query()->where('community_id', $community->id)->where('user_id', $member->user_id)->where('status', DuesMonthStatus::Paid)->with('payment')->get();
+        $rows = DuesMonth::query()->where('community_id', $community->id)->where('user_id', $member->user_id)->whereIn('status', [DuesMonthStatus::Paid, DuesMonthStatus::Pending])->with('payment')->get();
         foreach ($rows as $row) {
+            if ($row->status === DuesMonthStatus::Pending && $row->payment === null) {
+                continue;
+            }
             $month = $this->date($row->month)->startOfMonth();
             if ($month->lessThan($this->date($subject->anchor_date)->startOfMonth())) {
                 continue;
@@ -661,7 +783,7 @@ class BillingService
             $next = $month->addMonth();
             $end = $next->setDay(min($day, $next->daysInMonth))->addDay();
             $amount = $row->payment === null ? 0 : $row->payment->monthly_amount;
-            $this->invoice($subject, 'member', $start, $end, $amount, true, $month->format('Y-m'), ['legacy_paid' => true, 'legacy_nominal_unrecorded' => $row->payment === null, 'legacy_dues_payment_id' => $row->dues_payment_id, 'period_months' => 1, 'exempt' => false]);
+            $this->invoice($subject, 'member', $start, $end, $amount, $row->status === DuesMonthStatus::Paid, $month->format('Y-m'), ['legacy_paid' => $row->status === DuesMonthStatus::Paid, 'legacy_nominal_unrecorded' => $row->payment === null, 'legacy_dues_payment_id' => $row->dues_payment_id, 'period_months' => 1, 'exempt' => false]);
         }
     }
 
