@@ -43,6 +43,10 @@ class ImageAssetGuard
             throw ValidationException::withMessages([$field => ['Foto tidak valid. Unggah ulang foto JPG, PNG, atau WebP maksimal 5 MB.']]);
         }
 
+        if ($field !== 'proof_asset_id' && Asset::query()->whereKey($ids)->get()->contains(fn (Asset $asset): bool => $asset->isSensitive())) {
+            throw ValidationException::withMessages([$field => ['Bukti privat tidak dapat dipakai sebagai gambar publik. Unggah gambar lain.']]);
+        }
+
         $taken = Community::query()->whereIn('logo_asset_id', $ids)->exists()
             || DB::table('community_photos')->whereIn('asset_id', $ids)->exists()
             || Banner::query()->whereIn('image', $ids)->exists()

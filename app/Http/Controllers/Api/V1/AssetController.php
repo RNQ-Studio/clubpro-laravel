@@ -8,7 +8,9 @@ use App\Http\Resources\Api\V1\AssetResource;
 use App\Models\Asset;
 use App\Services\AssetUploadService;
 use App\Support\ApiResponse;
+use App\Support\Enums\AssetStatus;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -40,8 +42,18 @@ class AssetController extends Controller
      *
      * @unauthenticated
      */
-    public function file(Asset $asset): StreamedResponse
+    public function file(Request $request, Asset $asset): StreamedResponse
     {
+        if ($asset->isSensitive()) {
+            abort_unless($request->hasValidSignature(), 403);
+            abort_unless($asset->status === AssetStatus::Active, 404);
+            abort_unless(in_array($asset->mime_type, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true), 404);
+
+            return Storage::disk($asset->storage_type->disk())->response(
+                $asset->path,
+                headers: ['Cache-Control' => 'private, no-store', 'Referrer-Policy' => 'no-referrer'],
+            );
+        }
         abort_unless($asset->isServableImage(), 404);
 
         return Storage::disk($asset->storage_type->disk())->response(

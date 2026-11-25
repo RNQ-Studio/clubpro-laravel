@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Exports\UsersExport;
 use App\Http\Controllers\Controller;
 use App\Imports\UsersImport;
+use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Exporter;
@@ -27,11 +28,9 @@ class UserExcelController extends Controller
             return $exporter->download(new UsersExport, $fileName);
         } catch (Throwable $e) {
             // Sesuai dengan spesifikasi format response gagal
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal mengekspor data',
-                'data' => null,
-            ], 500);
+            report($e);
+
+            return ApiResponse::error('Gagal mengekspor data', 500);
         }
     }
 
@@ -42,11 +41,7 @@ class UserExcelController extends Controller
     {
         // Validasi input file: wajib ada dan valid
         if (! $request->hasFile('file') || ! $request->file('file')->isValid()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'File tidak valid. Harap upload file .xlsx',
-                'data' => null,
-            ], 400);
+            return ApiResponse::error('File tidak valid. Harap upload file .xlsx', 400);
         }
 
         $file = $request->file('file');
@@ -54,11 +49,7 @@ class UserExcelController extends Controller
 
         // Validasi format file harus .xlsx
         if (strtolower($extension) !== 'xlsx') {
-            return response()->json([
-                'success' => false,
-                'message' => 'File tidak valid. Harap upload file .xlsx',
-                'data' => null,
-            ], 400);
+            return ApiResponse::error('File tidak valid. Harap upload file .xlsx', 400);
         }
 
         try {
@@ -66,17 +57,11 @@ class UserExcelController extends Controller
             $importer->import($import, $file);
 
             // Return response ringkasan sesuai dengan format spesifikasi
-            return response()->json([
-                'success' => true,
-                'message' => 'Import selesai',
-                'data' => $import->getSummary(),
-            ]);
+            return ApiResponse::success($import->getSummary(), 'Import selesai');
         } catch (Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Gagal memproses file import: '.$e->getMessage(),
-                'data' => null,
-            ], 500);
+            report($e);
+
+            return ApiResponse::error('Gagal memproses file import. Periksa format dan coba kembali.', 500);
         }
     }
 }

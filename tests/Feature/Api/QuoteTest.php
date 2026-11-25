@@ -3,7 +3,10 @@
 namespace Tests\Feature\Api;
 
 use App\Models\Quote;
+use App\Models\User;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Passport\Passport;
 use Tests\TestCase;
 
 class QuoteTest extends TestCase
@@ -32,8 +35,13 @@ class QuoteTest extends TestCase
             ->assertJsonPath('meta.pagination.total', 1);
     }
 
-    public function test_guest_can_create_show_update_and_delete_quote(): void
+    public function test_platform_admin_can_create_show_update_and_delete_quote(): void
     {
+        $this->seed(RolePermissionSeeder::class);
+        $admin = User::factory()->create();
+        $admin->assignRole('super-admin');
+        Passport::actingAs($admin);
+
         $quoteId = $this->postJson('/api/v1/quotes', [
             'text' => 'Talk is cheap. Show me the code.',
             'author' => 'Linus Torvalds',

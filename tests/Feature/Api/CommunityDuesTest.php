@@ -13,6 +13,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Passport\Passport;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Activitylog\Models\Activity;
@@ -31,6 +32,9 @@ class CommunityDuesTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Storage::fake('gcs');
+        Storage::fake('local');
 
         $this->withoutMiddleware(ThrottleRequests::class);
         $this->seed(RolePermissionSeeder::class);
@@ -96,12 +100,13 @@ class CommunityDuesTest extends TestCase
         $this->assertSame(50000, $log->properties['attributes']['dues_amount']);
     }
 
-    public function test_admin_komunitas_juga_boleh_mengatur(): void
+    public function test_admin_dapat_mengelola_bukti_tetapi_tarif_hanya_pendiri(): void
     {
         $admin = $this->join('Admin', '2025-01-01 00:00:00', admin: true);
         Passport::actingAs($admin);
 
-        $this->putJson($this->url('dues/settings'), $this->settings())->assertOk();
+        $this->putJson($this->url('dues/settings'), $this->settings())->assertForbidden();
+        $this->getJson($this->url('dues/payments'))->assertOk();
     }
 
     public function test_anggota_biasa_tidak_bisa_mengatur_atau_memverifikasi(): void

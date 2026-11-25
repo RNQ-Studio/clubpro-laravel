@@ -11,6 +11,7 @@ use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Passport\Passport;
 use Tests\TestCase;
 
@@ -27,6 +28,9 @@ class MemberCardTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        Storage::fake('gcs');
+        Storage::fake('local');
 
         $this->withoutMiddleware(ThrottleRequests::class);
         $this->seed(RolePermissionSeeder::class);

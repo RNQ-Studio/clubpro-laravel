@@ -5,9 +5,11 @@ namespace Tests\Feature\Api;
 use App\Exports\UsersExport;
 use App\Imports\UsersImport;
 use App\Models\User;
+use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
+use Laravel\Passport\Passport;
 use Maatwebsite\Excel\Facades\Excel;
 use Maatwebsite\Excel\Validators\Failure;
 use Tests\TestCase;
@@ -15,6 +17,15 @@ use Tests\TestCase;
 class UserExcelTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->seed(RolePermissionSeeder::class);
+        $admin = User::factory()->create();
+        $admin->assignRole('super-admin');
+        Passport::actingAs($admin);
+    }
 
     /**
      * Test export endpoint successfully triggers excel download.
@@ -26,7 +37,7 @@ class UserExcelTest extends TestCase
         // Buat data user dummy
         User::factory()->create([
             'name' => 'John Doe',
-            'email' => 'john@example.com',
+            'email' => 'john@anaklangit.manahpro.web.id',
         ]);
 
         $response = $this->getJson('/api/v1/users/export');
@@ -37,7 +48,7 @@ class UserExcelTest extends TestCase
         Excel::assertDownloaded("users_export_{$date}.xlsx", function (UsersExport $export) {
             $users = $export->collection();
 
-            return $users->contains('email', 'john@example.com');
+            return $users->contains('email', 'john@anaklangit.manahpro.web.id');
         });
     }
 
@@ -52,7 +63,6 @@ class UserExcelTest extends TestCase
             ->assertJson([
                 'success' => false,
                 'message' => 'File tidak valid. Harap upload file .xlsx',
-                'data' => null,
             ]);
     }
 
@@ -71,21 +81,20 @@ class UserExcelTest extends TestCase
             ->assertJson([
                 'success' => false,
                 'message' => 'File tidak valid. Harap upload file .xlsx',
-                'data' => null,
             ]);
     }
 
     /**
      * Test the business logic of UsersImport (Insert new users).
      */
-    public function test_users_import_inserts_new_user_with_default_password(): void
+    public function test_users_import_inserts_new_user_without_shared_password(): void
     {
         $import = new UsersImport;
 
         // Baris data valid (belum ada di DB)
         $row = [
             'name' => 'Bob Builder',
-            'email' => 'bob@example.com',
+            'email' => 'bob@anaklangit.manahpro.web.id',
         ];
 
         // Jalankan logic model() di import
@@ -94,12 +103,13 @@ class UserExcelTest extends TestCase
         // Pastikan user berhasil di-insert
         $this->assertDatabaseHas('users', [
             'name' => 'Bob Builder',
-            'email' => 'bob@example.com',
+            'email' => 'bob@anaklangit.manahpro.web.id',
         ]);
 
-        // Cek password default terenkripsi bcrypt("password")
-        $user = User::where('email', 'bob@example.com')->first();
-        $this->assertTrue(Hash::check('password', $user->password));
+        // Tidak ada kredensial bawaan bersama.
+        $user = User::where('email', 'bob@anaklangit.manahpro.web.id')->first();
+        $this->assertFalse(Hash::check('password', $user->password));
+        $this->assertNull($user->email_verified_at);
 
         // Cek ringkasan summary
         $summary = $import->getSummary();
@@ -118,7 +128,7 @@ class UserExcelTest extends TestCase
         $originalPassword = Hash::make('secret123');
         $user = User::factory()->create([
             'name' => 'Alice Margatroid',
-            'email' => 'alice@example.com',
+            'email' => 'alice@anaklangit.manahpro.web.id',
             'password' => $originalPassword,
         ]);
 
@@ -127,7 +137,7 @@ class UserExcelTest extends TestCase
         // Baris data valid (email sudah ada di DB)
         $row = [
             'name' => 'Alice Margatroid Revised',
-            'email' => 'alice@example.com',
+            'email' => 'alice@anaklangit.manahpro.web.id',
         ];
 
         $import->model($row);
@@ -136,7 +146,7 @@ class UserExcelTest extends TestCase
         $this->assertDatabaseHas('users', [
             'id' => $user->id,
             'name' => 'Alice Margatroid Revised',
-            'email' => 'alice@example.com',
+            'email' => 'alice@anaklangit.manahpro.web.id',
         ]);
 
         // Pastikan password tidak berubah menjadi default

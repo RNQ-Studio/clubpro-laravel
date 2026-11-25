@@ -186,6 +186,7 @@ class DuesService
         }
 
         $this->images->assertUsable($payer, [$proofAssetId], 'proof_asset_id');
+        app(SensitiveAssetService::class)->privatize(Asset::query()->findOrFail($proofAssetId));
 
         try {
             return DB::transaction(function () use ($payer, $community, $monthsCount, $proofAssetId, $note): DuesPayment {

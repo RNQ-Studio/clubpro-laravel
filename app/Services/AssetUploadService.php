@@ -34,6 +34,9 @@ class AssetUploadService
         $storageType = config('filesystems.assets') === StorageType::Gcs->disk()
             ? StorageType::Gcs
             : StorageType::Local;
+        if (in_array(Str::slug($type), ['dues-proof', 'bukti-transfer', 'topup-proof', 'payout-proof'], true)) {
+            $storageType = StorageType::Private;
+        }
 
         // UUID dipakai sekaligus sebagai PK asset dan nama file di storage (tidak bisa ditebak).
         $uuid = (string) Str::uuid();

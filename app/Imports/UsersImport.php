@@ -5,6 +5,7 @@ namespace App\Imports;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Maatwebsite\Excel\Concerns\RemembersRowNumber;
 use Maatwebsite\Excel\Concerns\SkipsOnError;
 use Maatwebsite\Excel\Concerns\SkipsOnFailure;
@@ -19,8 +20,8 @@ use Throwable;
  *
  * | name         | email                  |
  * |--------------|------------------------|
- * | John Doe     | john@example.com       |
- * | Jane Smith   | jane@example.com       |
+ * | Anggota Satu | satu@anaklangit.manahpro.web.id |
+ * | Anggota Dua  | dua@anaklangit.manahpro.web.id  |
  *
  * Catatan:
  * - Baris pertama harus berupa header dengan nama kolom 'name' dan 'email'.
@@ -59,11 +60,11 @@ class UsersImport implements SkipsOnError, SkipsOnFailure, ToModel, WithHeadingR
                     'name' => $row['name'],
                 ]);
             } else {
-                // Jika belum ada -> INSERT baru dengan password default (bcrypt "password")
+                // Imported accounts use recovery/enrollment; never ship a shared credential.
                 User::create([
                     'name' => $row['name'],
                     'email' => $row['email'],
-                    'password' => Hash::make('password'),
+                    'password' => Hash::make(Str::random(64)),
                     'is_active' => true,
                 ]);
             }
@@ -73,7 +74,7 @@ class UsersImport implements SkipsOnError, SkipsOnFailure, ToModel, WithHeadingR
             $this->skippedCount++;
             $this->skippedRows[] = [
                 'row' => $rowNumber,
-                'message' => 'Gagal memproses baris database: '.$e->getMessage(),
+                'message' => 'Gagal memproses baris. Periksa data dan coba kembali.',
             ];
         }
 
@@ -142,7 +143,7 @@ class UsersImport implements SkipsOnError, SkipsOnFailure, ToModel, WithHeadingR
         $this->skippedCount++;
         $this->skippedRows[] = [
             'row' => $this->getRowNumber(),
-            'message' => 'Error sistem: '.$e->getMessage(),
+            'message' => 'Baris tidak dapat diproses. Periksa data dan coba kembali.',
         ];
     }
 

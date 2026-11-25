@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\DuesPayment;
+use App\Services\SensitiveAssetService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -28,7 +29,7 @@ class DuesPaymentResource extends JsonResource
             'monthly_amount' => $this->monthly_amount,
             'entry_fee' => $this->entry_fee,
             'total_amount' => $this->total_amount,
-            'proof_url' => $this->proof?->getPublicUrl(),
+            'proof_url' => app(SensitiveAssetService::class)->viewUrl($this->proof, $request->user()),
             'note' => $this->note,
             'status' => $this->status->value,
             'review_note' => $this->review_note,

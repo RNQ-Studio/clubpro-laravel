@@ -33,6 +33,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->dontFlash(['pin', 'pin_confirmation', 'current_pin', 'current_password', 'code', 'token']);
         $exceptions->render(function (Throwable $e, Request $request) {
             if (! $request->is('api/*') && ! $request->expectsJson()) {
                 return null;
@@ -64,7 +65,7 @@ return Application::configure(basePath: dirname(__DIR__))
                     message: $e->getMessage() ?: 'HTTP error.',
                     status: $e->getStatusCode(),
                     code: 'HTTP_ERROR',
-                ),
+                )->withHeaders($e->getHeaders()),
                 default => ApiResponse::error(
                     message: config('app.debug') ? $e->getMessage() : 'Server error.',
                     status: 500,
