@@ -21,6 +21,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Passport\Passport;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Tests\Support\PayoutFixture;
@@ -30,6 +31,28 @@ use Tests\TestCase;
 class PayoutIntegrityTest extends TestCase
 {
     use PayoutFixture, RefreshDatabase;
+
+    public function test_completed_application_retry_is_resolved_before_a_changed_pin_can_misclassify_it_as_unsent(): void
+    {
+        $this->fixture();
+        $transferData = $this->transferData(10000);
+        $transfer = $this->movement->transfer($this->sender, $transferData);
+        $payoutData = $this->payoutData(70000);
+        $payout = $this->movement->createPayout($this->sender, $payoutData);
+        $wrongPin = str_pad((string) (((int) $this->fixturePin + 1) % 1000000), 6, '0', STR_PAD_LEFT);
+        $before = $this->moneyState();
+        $this->assertSame($transfer->id, $this->movement->transfer($this->sender, [...$transferData, 'pin' => $wrongPin])->id);
+        $this->assertSame($payout->id, $this->movement->createPayout($this->sender, [...$payoutData, 'pin' => $wrongPin])->id);
+        $this->assertSame($before, $this->moneyState());
+        try {
+            $this->movement->transfer($this->sender, [...$transferData, 'pin' => $wrongPin, 'idempotency_key' => (string) Str::uuid()]);
+            $this->fail('A new transfer still requires a valid transaction PIN.');
+        } catch (ValidationException $exception) {
+            $this->assertArrayHasKey('pin', $exception->errors());
+        }
+        $this->assertSame($before, $this->moneyState());
+        $this->assertTrue($this->ledger->reconcile()['balanced']);
+    }
 
     public function test_final_money_movement_history_and_destinations_reject_direct_sql_rewrite(): void
     {
