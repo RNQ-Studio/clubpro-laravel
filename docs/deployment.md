@@ -45,9 +45,9 @@ REDIS_HOST=127.0.0.1
 REDIS_PASSWORD=null
 REDIS_PORT=6379
 
-# Mail Server Configuration
+# Optional mail configuration: use only a provisioned, working transport.
 MAIL_MAILER=smtp
-MAIL_HOST=smtp.mailgun.org
+MAIL_HOST=anaklangit.manahpro.web.id
 MAIL_PORT=587
 MAIL_USERNAME=postmaster@anaklangit.manahpro.web.id
 MAIL_PASSWORD=your_smtp_password
@@ -59,6 +59,12 @@ MAIL_FROM_NAME="${APP_NAME}"
 PASSPORT_PRIVATE_KEY="file://storage/oauth-private.key"
 PASSPORT_PUBLIC_KEY="file://storage/oauth-public.key"
 ```
+
+SMTP settings above are configuration keys, not evidence that a mail service is
+available. Sprint 02 supports PIN recovery through password/Google reauthentication
+and explicit in-app invitation acceptance by the matching verified account when
+email delivery is unavailable. Email-mode invitations still require their emailed
+code; recovery/invitation secrets must never fall back to a production log mailer.
 
 ---
 
