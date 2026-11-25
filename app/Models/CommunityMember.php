@@ -14,7 +14,14 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $id
  * @property int $community_id
- * @property int $user_id
+ * @property int|null $user_id
+ * @property int|null $member_identity_id
+ * @property int|null $merged_into_member_id
+ * @property string|null $external_reference
+ * @property string|null $creation_key
+ * @property string|null $creation_hash
+ * @property string|null $account_email
+ * @property-read MemberIdentity|null $identity
  * @property CommunityMemberRole $role
  * @property CommunityMemberStatus $status
  * @property Carbon|null $joined_at
@@ -22,14 +29,29 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Community $community
- * @property-read User $user
+ * @property-read User|null $user
  */
 class CommunityMember extends Model
 {
     /** @use HasFactory<CommunityMemberFactory> */
     use HasFactory;
 
-    protected $fillable = ['user_id', 'role', 'status', 'joined_at'];
+    protected $fillable = ['user_id', 'role', 'status', 'joined_at', 'member_identity_id', 'merged_into_member_id', 'external_reference', 'creation_key', 'creation_hash', 'account_email'];
+
+    protected static function booted(): void
+    {
+        static::creating(function (self $member): void {
+            if ($member->member_identity_id === null && $member->user_id !== null) {
+                $member->member_identity_id = MemberIdentity::forUser(User::query()->findOrFail($member->user_id))->id;
+            }
+        });
+    }
+
+    /** @return BelongsTo<MemberIdentity, $this> */
+    public function identity(): BelongsTo
+    {
+        return $this->belongsTo(MemberIdentity::class, 'member_identity_id');
+    }
 
     protected function casts(): array
     {

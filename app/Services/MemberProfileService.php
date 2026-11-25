@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\MemberIdentity;
 use App\Models\User;
 
 /**
@@ -55,12 +56,22 @@ class MemberProfileService
             }
         }
 
+        // Perubahan email tidak mewarisi bukti kepemilikan email sebelumnya.
+        if ($user->isDirty('email')) {
+            $user->email_verified_at = null;
+        }
+
         // Nomor HP baru belum terverifikasi OTP.
         if ($user->isDirty('phone')) {
             $user->phone_verified_at = null;
         }
 
         $user->save();
+        $identityData = ['name' => $user->name, 'birth_date' => $user->birth_date, 'gender' => $user->gender];
+        if ($user->wasChanged('birth_date') && $user->birth_date !== null && $user->birth_date->age < 18) {
+            $identityData['is_public'] = false;
+        }
+        MemberIdentity::query()->where('user_id', $user->getKey())->update($identityData);
 
         return $user->refresh();
     }
