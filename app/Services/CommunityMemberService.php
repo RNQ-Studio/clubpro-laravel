@@ -11,6 +11,7 @@ use App\Support\Enums\CommunityStatus;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -108,16 +109,19 @@ class CommunityMemberService
      */
     public function approve(User $actor, CommunityMember $member): CommunityMember
     {
-        $this->assertManageTarget($actor, $member);
-        if ($member->isActive()) {
-            $this->reject('member', 'Pengguna ini sudah menjadi anggota.');
-        }
+        return DB::transaction(function () use ($actor, $member): CommunityMember {
+            $member = $this->lockedTarget($actor, $member);
+            $this->assertManageTarget($actor, $member);
+            if ($member->isActive()) {
+                $this->reject('member', 'Pengguna ini sudah menjadi anggota.');
+            }
 
-        $member->update(['status' => CommunityMemberStatus::Active, 'joined_at' => $member->joined_at ?? now()]);
+            $member->update(['status' => CommunityMemberStatus::Active, 'joined_at' => $member->joined_at ?? now()]);
 
-        $this->log($actor, $member, 'community_member_approved');
+            $this->log($actor, $member, 'community_member_approved');
 
-        return $member->refresh();
+            return $member->refresh();
+        });
     }
 
     /**
@@ -127,25 +131,28 @@ class CommunityMemberService
      */
     public function setRole(User $actor, CommunityMember $member, CommunityMemberRole $role): CommunityMember
     {
-        $this->assertManageTarget($actor, $member, $role);
-        if (! $member->isActive()) {
-            $this->reject('role', 'Terima permintaan bergabungnya terlebih dahulu.');
-        }
+        return DB::transaction(function () use ($actor, $member, $role): CommunityMember {
+            $member = $this->lockedTarget($actor, $member);
+            $this->assertManageTarget($actor, $member, $role);
+            if (! $member->isActive()) {
+                $this->reject('role', 'Terima permintaan bergabungnya terlebih dahulu.');
+            }
 
-        if ($member->role === CommunityMemberRole::Creator) {
-            $this->reject('role', 'Peran creator tidak bisa diubah.');
-        }
+            if ($member->role === CommunityMemberRole::Creator) {
+                $this->reject('role', 'Peran creator tidak bisa diubah.');
+            }
 
-        if ($member->role === $role) {
-            return $member;
-        }
+            if ($member->role === $role) {
+                return $member;
+            }
 
-        $oldRole = $member->role;
-        $member->update(['role' => $role]);
+            $oldRole = $member->role;
+            $member->update(['role' => $role]);
 
-        $this->log($actor, $member, $role === CommunityMemberRole::Admin ? 'community_admin_granted' : ($oldRole === CommunityMemberRole::Admin ? 'community_admin_revoked' : 'community_role_updated'), ['old_role' => $oldRole->value, 'new_role' => $role->value]);
+            $this->log($actor, $member, $role === CommunityMemberRole::Admin ? 'community_admin_granted' : ($oldRole === CommunityMemberRole::Admin ? 'community_admin_revoked' : 'community_role_updated'), ['old_role' => $oldRole->value, 'new_role' => $role->value]);
 
-        return $member->refresh();
+            return $member->refresh();
+        });
     }
 
     /**
@@ -155,23 +162,36 @@ class CommunityMemberService
      */
     public function remove(User $actor, CommunityMember $member): void
     {
-        $this->assertManageTarget($actor, $member);
-        if ($member->role === CommunityMemberRole::Creator) {
-            $this->reject('member', 'Creator tidak bisa dikeluarkan.');
-        }
+        DB::transaction(function () use ($actor, $member): void {
+            $member = $this->lockedTarget($actor, $member);
+            $this->assertManageTarget($actor, $member);
+            if ($member->role === CommunityMemberRole::Creator) {
+                $this->reject('member', 'Creator tidak bisa dikeluarkan.');
+            }
 
-        if ($member->user_id === $actor->getKey()) {
-            $this->reject('member', 'Gunakan menu Keluar untuk meninggalkan komunitas.');
-        }
+            if ($member->user_id === $actor->getKey()) {
+                $this->reject('member', 'Gunakan menu Keluar untuk meninggalkan komunitas.');
+            }
 
-        if ($member->role === CommunityMemberRole::Admin && ! $this->isCreator($actor, $member)) {
-            $this->reject('member', 'Hanya creator yang bisa mengeluarkan admin.');
-        }
+            if ($member->role === CommunityMemberRole::Admin && ! $this->isCreator($actor, $member)) {
+                $this->reject('member', 'Hanya creator yang bisa mengeluarkan admin.');
+            }
 
-        $event = $member->isActive() ? 'community_member_removed' : 'community_member_rejected';
-        $member->update(['status' => CommunityMemberStatus::Archived]);
+            $event = $member->isActive() ? 'community_member_removed' : 'community_member_rejected';
+            $member->update(['status' => CommunityMemberStatus::Archived]);
 
-        $this->log($actor, $member, $event);
+            $this->log($actor, $member, $event);
+        });
+    }
+
+    private function lockedTarget(User $actor, CommunityMember $member): CommunityMember
+    {
+        Community::query()->whereKey($member->community_id)->lockForUpdate()->firstOrFail();
+        $locked = CommunityMember::query()->where('community_id', $member->community_id)
+            ->where(fn ($query) => $query->whereKey($member->id)->orWhere('user_id', $actor->getKey()))
+            ->orderBy('id')->lockForUpdate()->get();
+
+        return $locked->firstWhere('id', $member->id) ?? throw new \LogicException('Keanggotaan hilang.');
     }
 
     private function assertManageTarget(User $actor, CommunityMember $member, ?CommunityMemberRole $newRole = null): void

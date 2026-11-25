@@ -73,6 +73,12 @@ class User extends Authenticatable implements FilamentUser, MustVerifyEmail, OAu
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, HasRoles, LogsActivity, Notifiable;
 
+    /** Normalisasi hanya saat assignment; baris legacy tidak diubah diam-diam. */
+    public function setEmailAttribute(string $value): void
+    {
+        $this->attributes['email'] = mb_strtolower(trim($value));
+    }
+
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()

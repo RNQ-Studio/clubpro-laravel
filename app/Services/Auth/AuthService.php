@@ -26,6 +26,10 @@ class AuthService
     public function login(string $email, string $password, array $deviceInfo = []): array
     {
         $user = User::query()->where('email', $email)->first();
+        if ($user === null) {
+            $matches = User::query()->whereRaw('lower(email) = ?', [mb_strtolower(trim($email))])->limit(2)->get();
+            $user = $matches->count() === 1 ? $matches->first() : null;
+        }
 
         if ($user !== null && ! $user->is_active) {
             throw new AuthorizationException('Your account is inactive.');
@@ -33,7 +37,7 @@ class AuthService
 
         $tokens = $this->issueToken([
             'grant_type' => 'password',
-            'username' => $email,
+            'username' => $user->email ?? $email,
             'password' => $password,
         ]);
 

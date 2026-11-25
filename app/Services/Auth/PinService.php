@@ -108,10 +108,18 @@ class PinService
     {
         $identifier = trim($identifier);
 
-        return User::query()->where(function ($query) use ($identifier): void {
-            $query->where(fn ($email) => $email->whereRaw('lower(email) = ?', [mb_strtolower($identifier)])->whereNotNull('email_verified_at'))
-                ->orWhere(fn ($phone) => $phone->where('phone', $identifier)->whereNotNull('phone_verified_at'));
-        })->first();
+        $users = User::query()->where(function ($query) use ($identifier): void {
+            $query->whereRaw('lower(email) = ?', [mb_strtolower($identifier)])->orWhere('phone', $identifier);
+        })->limit(2)->get();
+        if ($users->count() !== 1) {
+            return null;
+        }
+        $user = $users->first();
+        $verified = mb_strtolower($user->email) === mb_strtolower($identifier)
+            ? $user->email_verified_at !== null
+            : $user->phone_verified_at !== null;
+
+        return $verified ? $user : null;
     }
 
     private function limit(string $identifier, string $ip): string

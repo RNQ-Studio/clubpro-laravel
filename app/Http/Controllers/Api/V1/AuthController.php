@@ -92,7 +92,7 @@ class AuthController extends Controller
             $this->deviceInfo($request),
         );
 
-        return ApiResponse::success([...$tokens, 'email_verified' => true], 'Login successful');
+        return ApiResponse::success($tokens, 'Login successful');
     }
 
     /**

@@ -52,7 +52,12 @@ class UsersImport implements SkipsOnError, SkipsOnFailure, ToModel, WithHeadingR
         $rowNumber = $this->getRowNumber();
 
         try {
-            $user = User::where('email', $row['email'])->first();
+            $email = mb_strtolower(trim($row['email']));
+            $matches = User::query()->whereRaw('lower(email) = ?', [$email])->limit(2)->get();
+            if ($matches->count() > 1) {
+                throw new \RuntimeException('Identitas email ambigu.');
+            }
+            $user = $matches->first();
 
             if ($user) {
                 // Jika email sudah ada -> UPDATE name
@@ -63,7 +68,7 @@ class UsersImport implements SkipsOnError, SkipsOnFailure, ToModel, WithHeadingR
                 // Imported accounts use recovery/enrollment; never ship a shared credential.
                 User::create([
                     'name' => $row['name'],
-                    'email' => $row['email'],
+                    'email' => $email,
                     'password' => Hash::make(Str::random(64)),
                     'is_active' => true,
                 ]);

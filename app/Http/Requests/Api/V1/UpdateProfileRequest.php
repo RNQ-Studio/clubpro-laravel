@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Api\V1;
 
+use App\Rules\UniqueAccountEmail;
 use App\Services\IndonesiaRegionService;
 use App\Services\MemberProfileService;
 use App\Support\Enums\Gender;
@@ -25,6 +26,9 @@ class UpdateProfileRequest extends FormRequest
 
     protected function prepareForValidation(): void
     {
+        if (is_string($this->input('email'))) {
+            $this->merge(['email' => mb_strtolower(trim($this->input('email')))]);
+        }
         // Nomor ditulis bebas di app ("0812-3456 7890") → simpan angka saja.
         if (is_string($this->input('phone'))) {
             $this->merge(['phone' => preg_replace('/[\s\-.()]/', '', $this->input('phone'))]);
@@ -45,7 +49,7 @@ class UpdateProfileRequest extends FormRequest
                 'required',
                 'email',
                 'max:255',
-                Rule::unique('users', 'email')->ignore($userId),
+                new UniqueAccountEmail($userId),
             ],
             'gender' => ['sometimes', 'nullable', Rule::enum(Gender::class)],
             'birth_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'before_or_equal:today', 'after_or_equal:'.now()->subYears((int) config('community.max_age_years', 120))->toDateString()],

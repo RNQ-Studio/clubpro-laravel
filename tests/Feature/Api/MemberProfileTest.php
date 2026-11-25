@@ -268,13 +268,14 @@ class MemberProfileTest extends TestCase
             'emergency_contact_phone' => '081298765432',
         ])->assertOk();
 
-        foreach (['birth_place', 'birth_date', 'address', 'blood_type', 'emergency_contact_name', 'emergency_contact_phone', 'archery_started_at', 'bow_type'] as $field) {
+        foreach (['birth_place', 'address', 'blood_type', 'emergency_contact_name', 'emergency_contact_phone', 'archery_started_at', 'bow_type'] as $field) {
             $response->assertJsonMissingPath("data.{$field}");
         }
         // Data lama di database tidak dihapus maupun diubah.
         $this->assertSame('Jl. Lama', $this->user->refresh()->address);
         $this->assertSame('Ibu Sari', $this->user->emergency_contact_name);
-        $this->assertNull($this->user->birth_date);
+        $this->assertSame('2001-04-12', $this->user->birth_date?->toDateString());
+        $response->assertJsonPath('data.birth_date', '2001-04-12');
         $this->assertFalse(Schema::hasColumn('users', 'bow_type'));
     }
 }

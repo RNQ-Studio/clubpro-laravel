@@ -25,7 +25,7 @@ class GoogleAuthService
 
     /**
      * @param  array{device_id?: string, platform?: string, os_version?: string|null, app_version?: string|null, device_name?: string|null, push_token?: string|null, ip_address?: string|null, user_agent?: string|null}  $deviceInfo
-     * @return array{access_token: string, refresh_token: string, token_type: string, expires_in: int, is_new_user: bool}
+     * @return array{access_token: string, refresh_token: string, token_type: string, expires_in: int, is_new_user: bool, email_verified: bool}
      *
      * @throws AuthenticationException|AuthorizationException
      */
@@ -42,7 +42,7 @@ class GoogleAuthService
         $tokens = $this->authService->issueTokenForUser($user);
         $this->activity->recordLogin($user, $deviceInfo);
 
-        return [...$tokens, 'is_new_user' => $isNew];
+        return [...$tokens, 'is_new_user' => $isNew, 'email_verified' => $user->hasVerifiedEmail()];
     }
 
     /**
@@ -51,8 +51,17 @@ class GoogleAuthService
     private function resolveUser(GoogleIdentity $identity): array
     {
         $email = Str::lower($identity->email);
-        $user = User::query()->where('google_id', $identity->subject)->first()
-            ?? User::query()->whereRaw('lower(email) = ?', [$email])->first();
+        $user = User::query()->where('google_id', $identity->subject)->first();
+        if ($user === null) {
+            $matches = User::query()->whereRaw('lower(email) = ?', [$email])->limit(2)->get();
+            if ($matches->count() > 1) {
+                throw new AuthenticationException('Invalid credentials.');
+            }
+            $user = $matches->first();
+            if ($user !== null && $user->google_id !== null && $user->google_id !== $identity->subject) {
+                throw new AuthenticationException('Invalid credentials.');
+            }
+        }
 
         if ($user !== null) {
             // Akun email yang sudah ada ditautkan ke Google pada login pertama;
@@ -60,7 +69,7 @@ class GoogleAuthService
             $user->forceFill([
                 'google_id' => $user->google_id ?? $identity->subject,
                 'google_avatar_url' => $identity->pictureUrl ?? $user->google_avatar_url,
-                'email_verified_at' => $user->email_verified_at ?? now(),
+                'email_verified_at' => $user->email_verified_at ?? (Str::lower($user->email) === $email ? now() : null),
             ])->save();
 
             return [$user, false];

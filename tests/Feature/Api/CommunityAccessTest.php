@@ -6,10 +6,12 @@ use App\Models\Community;
 use App\Models\CommunityMember;
 use App\Models\GuardianGrant;
 use App\Models\User;
+use App\Services\CommunityMemberService;
 use App\Support\Enums\CommunityMemberRole;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Validation\ValidationException;
 use Laravel\Passport\Passport;
 use Tests\TestCase;
 
@@ -102,6 +104,21 @@ class CommunityAccessTest extends TestCase
         $this->postJson("/api/v1/communities/{$community->id}/members/{$alias->id}/approve")->assertUnprocessable()->assertJsonValidationErrors('member');
         $this->putJson("/api/v1/communities/{$community->id}/members/{$alias->id}/role", ['role' => 'coach'])->assertUnprocessable()->assertJsonValidationErrors('member');
         $this->assertDatabaseHas('community_members', ['id' => $alias->id, 'status' => 'archived', 'merged_into_member_id' => $canonical->id]);
+    }
+
+    public function test_stale_target_cannot_override_a_newly_granted_admin_role(): void
+    {
+        $community = Community::factory()->approved()->create();
+        $actor = CommunityMember::factory()->admin()->for($community)->create();
+        $target = CommunityMember::factory()->for($community)->create();
+        $staleTarget = $target->fresh();
+        $target->update(['role' => CommunityMemberRole::Admin]);
+        try {
+            app(CommunityMemberService::class)->setRole($actor->user, $staleTarget, CommunityMemberRole::Coach);
+            $this->fail('Stale target must not override protected admin role.');
+        } catch (ValidationException) {
+            $this->assertSame(CommunityMemberRole::Admin, $target->refresh()->role);
+        }
     }
 
     public function test_leave_and_rejoin_preserves_stable_membership_identity_and_join_date(): void
