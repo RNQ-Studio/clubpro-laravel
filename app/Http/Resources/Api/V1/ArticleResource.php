@@ -29,7 +29,11 @@ class ArticleResource extends JsonResource
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
             'category' => new CategoryResource($this->whenLoaded('category')),
-            'author' => new UserResource($this->whenLoaded('author')),
+            'author' => $this->whenLoaded('author', fn (): ?array => $this->author === null ? null : [
+                'id' => $this->author->id,
+                'name' => $this->author->name,
+                'avatar_url' => $this->author->avatarUrl(),
+            ]),
             'tags' => TagResource::collection($this->whenLoaded('tags')),
         ];
     }

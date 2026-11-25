@@ -55,6 +55,12 @@ class ArticleTest extends TestCase
         $this->getJson("/api/v1/articles?filter[category_id]={$category->id}&filter[status]=draft&sort=title&per_page=1")
             ->assertOk()
             ->assertJsonPath('data.0.title', 'Beta Article')
+            ->assertJsonPath('data.0.author.id', $author->id)
+            ->assertJsonMissingPath('data.0.author.email')
+            ->assertJsonMissingPath('data.0.author.phone')
+            ->assertJsonMissingPath('data.0.author.birth_date')
+            ->assertJsonMissingPath('data.0.author.pin_google_reauthenticated')
+            ->assertJsonMissingPath('data.0.author.permissions')
             ->assertJsonPath('meta.pagination.per_page', 1)
             ->assertJsonPath('meta.pagination.total', 1);
     }
