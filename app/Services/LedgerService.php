@@ -247,6 +247,81 @@ class LedgerService
         }, 3);
     }
 
+    /**
+     * Trusted training domain allocation: staff actor may consume the purchaser's
+     * reservation after TrainingService authorizes athlete, session and community.
+     *
+     * @param  list<array{account_id:int,amount:int}>  $allocations
+     * @param  array<string,mixed>  $metadata
+     */
+    public function allocateReservation(User $actor, LedgerReservation $reservation, array $allocations, string $key, array $metadata): LedgerJournal
+    {
+        return DB::transaction(function () use ($actor, $reservation, $allocations, $key, $metadata): LedgerJournal {
+            $reservation = LedgerReservation::query()->lockForUpdate()->findOrFail($reservation->id);
+            $amount = array_sum(array_column($allocations, 'amount'));
+            $this->assertAmount($amount);
+            $postings = [['account_id' => $reservation->reserved_account_id, 'amount' => -$amount]];
+            foreach ($allocations as $allocation) {
+                $this->assertAmount($allocation['amount']);
+                $recipient = LedgerAccount::query()->findOrFail($allocation['account_id']);
+                abort_unless(! $recipient->allow_negative && $recipient->bucket === 'available' && in_array($recipient->kind, ['identity', 'community'], true), 422, 'Tujuan pembagian tidak sah.');
+                $postings[] = ['account_id' => $recipient->id, 'amount' => $allocation['amount']];
+            }
+            $community = Community::query()->findOrFail($reservation->community_id);
+            $metadata = [...$metadata, 'reservation_id' => $reservation->id, 'allocations' => $allocations];
+            $previous = LedgerJournal::query()->where('actor_id', $actor->id)->where('operation', 'training_attendance')->where('idempotency_key', $key)->first();
+            if ($previous !== null) {
+                // post validates the exact original payload and skips all mutations.
+                return $this->post($actor, $key, 'training_attendance', $postings, $community, $metadata);
+            }
+            abort_unless($amount <= $reservation->remaining && $reservation->status === 'reserved', 409, 'Dana paket sudah terpakai.');
+            $journal = $this->post($actor, $key, 'training_attendance', $postings, $community, $metadata, function () use ($reservation, $allocations): void {
+                foreach ($allocations as $allocation) {
+                    $this->moveLots($reservation->reserved_account_id, $allocation['account_id'], $allocation['amount']);
+                }
+            });
+            $reservation->update(['remaining' => $reservation->remaining - $amount, 'status' => $reservation->remaining === $amount ? 'finalized' : 'reserved']);
+
+            return $journal;
+        }, 3);
+    }
+
+    /** Technical attendance correction returns funds to the SAME package reserve, never available money.
+     * @param  array<string,mixed>  $metadata
+     */
+    public function restoreTrainingAllocation(User $actor, LedgerReservation $reservation, LedgerJournal $original, string $key, array $metadata): LedgerJournal
+    {
+        return DB::transaction(function () use ($actor, $reservation, $original, $key, $metadata): LedgerJournal {
+            $this->lockOperation('training-restore:'.$original->id);
+            $reservation = LedgerReservation::query()->lockForUpdate()->findOrFail($reservation->id);
+            abort_unless($original->operation === 'training_attendance' && ($original->metadata['reservation_id'] ?? null) === $reservation->id, 422, 'Jurnal bukan alokasi paket ini.');
+            /** @var list<array{account_id:int,amount:int}> $allocations */
+            $allocations = $original->metadata['allocations'];
+            $amount = array_sum(array_column($allocations, 'amount'));
+            $postings = [['account_id' => $reservation->reserved_account_id, 'amount' => $amount]];
+            foreach ($allocations as $allocation) {
+                $postings[] = ['account_id' => $allocation['account_id'], 'amount' => -$allocation['amount']];
+            }
+            $community = Community::query()->findOrFail($reservation->community_id);
+            $metadata = [...$metadata, 'original_journal_id' => $original->id, 'reservation_id' => $reservation->id];
+            $previous = LedgerJournal::query()->where('operation', 'training_correction')->where('metadata->original_journal_id', $original->id)->first();
+            if ($previous !== null) {
+                abort_unless($previous->actor_id === $actor->id && $previous->idempotency_key === $key, 409, 'Jurnal absensi sudah dikoreksi.');
+
+                return $this->post($actor, $key, 'training_correction', $postings, $community, $metadata);
+            }
+            abort_unless($reservation->remaining + $amount <= $reservation->amount, 409, 'Cadangan telah dikoreksi.');
+            $journal = $this->post($actor, $key, 'training_correction', $postings, $community, $metadata, function () use ($reservation, $allocations): void {
+                foreach ($allocations as $allocation) {
+                    $this->moveLots($allocation['account_id'], $reservation->reserved_account_id, $allocation['amount']);
+                }
+            });
+            $reservation->update(['remaining' => $reservation->remaining + $amount, 'status' => 'reserved']);
+
+            return $journal;
+        }, 3);
+    }
+
     /** @return array{balanced:bool,account_errors:list<int>,lot_errors:list<int>,unbalanced_journals:list<string>,custody_errors:list<string>,total_postings:int} */
     public function reconcile(): array
     {

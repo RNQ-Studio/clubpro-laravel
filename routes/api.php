@@ -131,6 +131,7 @@ Route::prefix('v1')->group(function (): void {
     Route::middleware(['auth:api', 'check.maintenance', 'track.activity', EnsureCommunityEntitlement::class])->group(function (): void {
         require __DIR__.'/membership-billing.php';
         require __DIR__.'/finance.php';
+        require __DIR__.'/training.php';
         Route::get('billing-notices', [BillingNoticeController::class, 'index']);
         Route::post('billing-notices/{notice}/read', [BillingNoticeController::class, 'read'])->whereNumber('notice');
 

@@ -44,6 +44,11 @@ class CommunityPolicy
         return $member?->isActive() === true && $member->role === CommunityMemberRole::Creator;
     }
 
+    public function configureTraining(User $user, Community $community): bool
+    {
+        return $community->membershipOf($user)?->role === CommunityMemberRole::Creator;
+    }
+
     public function recordMembers(User $user, Community $community): bool
     {
         return $this->manage($user, $community);
