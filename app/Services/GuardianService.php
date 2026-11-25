@@ -22,24 +22,24 @@ class GuardianService
 
     public function invite(User $actor, CommunityMember $member, string $kind, string $email): MemberInvitation
     {
-        if (! $member->isActive() || $member->merged_into_member_id !== null) {
-            $this->members->reject('member', 'Undangan hanya untuk keanggotaan aktif.');
-        }
-        $identity = $member->identity ?? throw new \LogicException('Identitas anggota belum tersedia.');
-        if ($identity->user_id !== $actor->getKey()) {
-            $this->members->authorizeSubject($actor, $member);
-            if ($identity->user_id !== null) {
-                throw new AuthorizationException('Undangan untuk pemilik akun harus dibuat oleh pemilik akun tersebut.');
-            }
-        }
-        if ($kind === 'account' && $identity->user_id !== null) {
-            $this->members->reject('member', 'Identitas sudah terhubung ke akun.');
-        }
         $email = strtolower(trim($email));
         $deliveryMethod = app(SensitiveMailGuard::class)->isAvailable() ? 'email' : 'in_app';
 
-        return DB::transaction(function () use ($actor, $member, $identity, $kind, $email, $deliveryMethod): MemberInvitation {
-            MemberIdentity::query()->whereKey($identity->id)->lockForUpdate()->firstOrFail();
+        return DB::transaction(function () use ($actor, $member, $kind, $email, $deliveryMethod): MemberInvitation {
+            $member = $this->members->lockedMember($member);
+            if (! $member->isActive() || $member->merged_into_member_id !== null) {
+                $this->members->reject('member', 'Undangan hanya untuk keanggotaan aktif.');
+            }
+            $identity = $member->identity ?? throw new \LogicException('Identitas anggota belum tersedia.');
+            if ($identity->user_id !== $actor->getKey()) {
+                $this->members->authorizeSubject($actor, $member);
+                if ($identity->user_id !== null) {
+                    throw new AuthorizationException('Undangan untuk pemilik akun harus dibuat oleh pemilik akun tersebut.');
+                }
+            }
+            if ($kind === 'account' && $identity->user_id !== null) {
+                $this->members->reject('member', 'Identitas sudah terhubung ke akun.');
+            }
             MemberInvitation::query()->where('member_identity_id', $identity->id)->where('kind', $kind)
                 ->where('email', $email)->whereNull('claimed_at')->whereNull('revoked_at')->update(['revoked_at' => now()]);
             $token = Str::random(40);
@@ -64,7 +64,14 @@ class GuardianService
     public function claim(User $actor, MemberInvitation $invitation, ?string $token = null, bool $accept = false): MemberIdentity
     {
         return DB::transaction(function () use ($actor, $invitation, $token, $accept): MemberIdentity {
+            // The community/member/identity lock precedes invitation locks, matching
+            // creation and role changes so a queued request cannot reuse old ownership.
+            $snapshot = MemberInvitation::query()->findOrFail($invitation->id);
+            $member = $this->members->lockedMember($snapshot->member);
             $invitation = MemberInvitation::query()->lockForUpdate()->findOrFail($invitation->id);
+            $invitation->setRelation('member', $member);
+            $identity = $member->identity ?? throw new \LogicException('Identitas anggota belum tersedia.');
+            $invitation->setRelation('identity', $identity);
             $ownershipProof = match ($invitation->delivery_method) {
                 'email' => $token !== null && hash_equals($invitation->token_hash, hash('sha256', $token)),
                 'in_app' => $accept === true,
@@ -73,15 +80,18 @@ class GuardianService
             if (! $actor->hasVerifiedEmail() || strtolower($actor->email) !== $invitation->email
                 || User::query()->whereRaw('lower(email) = ?', [$invitation->email])->count() !== 1
                 || $invitation->claimed_at !== null || $invitation->revoked_at !== null || $invitation->expires_at->isPast()
-                || ! $invitation->member->isActive()
+                || ! $member->isActive() || $member->merged_into_member_id !== null
+                || $invitation->member_identity_id !== $identity->id
                 || ! $ownershipProof) {
                 $this->members->reject($invitation->delivery_method === 'in_app' ? 'accept' : 'token', 'Undangan tidak dapat digunakan. Pastikan email terverifikasi dan syarat penerimaan terpenuhi.');
             }
             $issuer = User::query()->findOrFail($invitation->invited_by);
-            if ($invitation->identity->user_id !== $issuer->getKey()) {
-                $this->members->authorizeSubject($issuer, $invitation->member);
+            if ($identity->user_id !== null && $identity->user_id !== $issuer->getKey()) {
+                throw new AuthorizationException('Undangan wali akun harus diterbitkan pemilik akun tersebut.');
             }
-            $identity = MemberIdentity::query()->lockForUpdate()->findOrFail($invitation->member_identity_id);
+            if ($identity->user_id !== $issuer->getKey()) {
+                $this->members->authorizeSubject($issuer, $member);
+            }
             if ($invitation->kind === 'account') {
                 $identity = $this->linkAccount($actor, $identity, $invitation->id);
             } else {
@@ -109,10 +119,18 @@ class GuardianService
     /** @param array<string, mixed> $data */
     public function updateDependent(User $actor, MemberIdentity $identity, array $data): MemberIdentity
     {
-        $this->authorizeDependent($actor, $identity);
-
         return DB::transaction(function () use ($actor, $identity, $data): MemberIdentity {
+            $snapshot = MemberIdentity::query()->findOrFail($identity->id);
+            if ($snapshot->user_id !== null) {
+                // Canonical account claims and profile edits lock the account before
+                // its linked identity; never acquire these two rows in reverse order.
+                User::query()->whereKey($snapshot->user_id)->lockForUpdate()->firstOrFail();
+            }
             $identity = MemberIdentity::query()->lockForUpdate()->findOrFail($identity->id);
+            if ($identity->user_id !== $snapshot->user_id) {
+                throw new AuthorizationException('Hubungan akun berubah. Muat ulang data anggota sebelum menyimpan.');
+            }
+            $this->authorizeDependent($actor, $identity);
             $identity->update(Arr::only($data, ['name', 'birth_date', 'gender', 'is_public']));
             if ($identity->user_id !== null) {
                 $identity->user?->update(Arr::only($data, ['name', 'birth_date', 'gender']));
@@ -127,21 +145,28 @@ class GuardianService
 
     public function revoke(User $actor, GuardianGrant $grant): void
     {
-        if ($grant->guardian_user_id !== $actor->getKey() && $grant->identity->user_id !== $actor->getKey()) {
-            if ($grant->identity->user_id !== null) {
-                throw new AuthorizationException('Hubungan wali akun hanya dapat dicabut oleh pemilik akun atau wali.');
+        DB::transaction(function () use ($actor, $grant): void {
+            $snapshot = GuardianGrant::query()->findOrFail($grant->id);
+            $member = $this->members->lockedMember($snapshot->member);
+            $grant = GuardianGrant::query()->lockForUpdate()->findOrFail($grant->id);
+            $identity = MemberIdentity::query()->lockForUpdate()->findOrFail($grant->member_identity_id);
+            $grant->setRelation('identity', $identity);
+            $grant->setRelation('member', $member);
+            if ($grant->guardian_user_id !== $actor->getKey() && $identity->user_id !== $actor->getKey()) {
+                if ($identity->user_id !== null) {
+                    throw new AuthorizationException('Hubungan wali akun hanya dapat dicabut oleh pemilik akun atau wali.');
+                }
+                $this->members->authorizeSubject($actor, $member);
             }
-            $this->members->authorizeSubject($actor, $grant->member);
-        }
-        $grant->update(['revoked_at' => now()]);
-        $identity = $grant->identity;
-        if (($identity->user_id === null || ($identity->birth_date !== null && $identity->birth_date->age < 18))
-            && ! $identity->guardianGrants()->whereNull('revoked_at')->exists()) {
-            $identity->update(['is_public' => false]);
-        }
-        foreach ($grant->identity->memberships as $member) {
-            $this->members->audit($actor, $member, 'guardian_grant_revoked');
-        }
+            $grant->update(['revoked_at' => now()]);
+            if (($identity->user_id === null || ($identity->birth_date !== null && $identity->birth_date->age < 18))
+                && ! $identity->guardianGrants()->whereNull('revoked_at')->exists()) {
+                $identity->update(['is_public' => false]);
+            }
+            foreach ($identity->memberships as $membership) {
+                $this->members->audit($actor, $membership, 'guardian_grant_revoked');
+            }
+        });
     }
 
     /** @return array<string, mixed> */

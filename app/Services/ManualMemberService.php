@@ -38,13 +38,13 @@ class ManualMemberService
     /** @param array<string, mixed> $data */
     public function create(User $actor, Community $community, array $data): CommunityMember
     {
-        $this->authorizeManager($actor, $community);
         $payload = Arr::only($data, ['name', 'birth_date', 'gender', 'external_reference', 'account_email']);
         ksort($payload);
         $hash = hash('sha256', json_encode($payload, JSON_THROW_ON_ERROR));
 
         return DB::transaction(function () use ($actor, $community, $data, $hash): CommunityMember {
-            Community::query()->whereKey($community->id)->lockForUpdate()->firstOrFail();
+            $community = Community::query()->whereKey($community->id)->lockForUpdate()->firstOrFail();
+            $this->authorizeManager($actor, $community);
             $existing = $community->members()->where('creation_key', $data['idempotency_key'])->first();
             if ($existing !== null) {
                 if ($existing->creation_hash !== $hash) {
@@ -84,16 +84,15 @@ class ManualMemberService
     /** @param array<string, mixed> $data */
     public function update(User $actor, CommunityMember $member, array $data): CommunityMember
     {
-        $this->authorizeSubject($actor, $member);
-        if ($member->merged_into_member_id !== null || ! $member->isActive()) {
-            $this->reject('member', 'Keanggotaan telah diarsipkan. Riwayat tetap tersimpan dan tidak dapat diaktifkan melalui editor profil.');
-        }
-        if ($member->user_id !== null) {
-            $this->reject('member', 'Anggota sudah memiliki akun. Profil akun hanya dapat diubah pemilik atau wali terverifikasi.');
-        }
-
         return DB::transaction(function () use ($actor, $member, $data): CommunityMember {
-            Community::query()->whereKey($member->community_id)->lockForUpdate()->firstOrFail();
+            $member = $this->lockedMember($member);
+            $this->authorizeSubject($actor, $member);
+            if ($member->merged_into_member_id !== null || ! $member->isActive()) {
+                $this->reject('member', 'Keanggotaan telah diarsipkan. Riwayat tetap tersimpan dan tidak dapat diaktifkan melalui editor profil.');
+            }
+            if ($member->user_id !== null) {
+                $this->reject('member', 'Anggota sudah memiliki akun. Profil akun hanya dapat diubah pemilik atau wali terverifikasi.');
+            }
             $this->checkAccount($member->community, $data['account_email'] ?? null, $member->id);
             if (filled($data['external_reference'] ?? null) && $member->community->members()->whereKeyNot($member->id)->where('external_reference', $data['external_reference'])->exists()) {
                 $this->reject('external_reference', 'Referensi anggota sudah tercatat di komunitas ini.');
@@ -108,6 +107,18 @@ class ManualMemberService
 
             return $member->refresh()->load('identity', 'user');
         });
+    }
+
+    /** All community identity writes share the role-mutation lock order. */
+    public function lockedMember(CommunityMember $member): CommunityMember
+    {
+        $community = Community::query()->whereKey($member->community_id)->lockForUpdate()->firstOrFail();
+        $fresh = CommunityMember::query()->where('community_id', $community->id)->whereKey($member->id)->lockForUpdate()->firstOrFail();
+        $fresh->setRelation('community', $community);
+        $fresh->setRelation('identity', $fresh->member_identity_id === null ? null
+            : MemberIdentity::query()->whereKey($fresh->member_identity_id)->lockForUpdate()->firstOrFail());
+
+        return $fresh;
     }
 
     /** @return array<string, mixed> */

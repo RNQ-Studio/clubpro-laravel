@@ -9,12 +9,16 @@ use App\Models\GuardianGrant;
 use App\Models\MemberIdentity;
 use App\Models\MemberInvitation;
 use App\Models\User;
+use App\Services\GuardianService;
+use App\Services\ManualMemberService;
 use App\Support\Enums\CommunityMemberRole;
 use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Passport\Passport;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
@@ -194,6 +198,99 @@ class InAppMemberInvitationTest extends TestCase
         $this->getJson('/api/v1/dependents/'.$claim['id'])->assertForbidden();
         $this->putJson('/api/v1/dependents/'.$claim['id'], ['name' => 'No Inherited Authority'])->assertForbidden();
         Mail::assertNothingSent();
+    }
+
+    #[DataProvider('canonicalCases')]
+    public function test_stale_manual_member_cannot_edit_or_issue_invites_after_account_claim(bool $existingCanonical): void
+    {
+        $account = User::factory()->create(['birth_date' => null, 'gender' => null]);
+        if ($existingCanonical) {
+            MemberIdentity::forUser($account);
+        }
+        $manual = $this->manual();
+        $stale = CommunityMember::query()->with('identity', 'community')->findOrFail($manual->id);
+        $invite = $this->invite($manual, $account, 'account');
+        Passport::actingAs($account);
+        $this->postJson($this->claimUrl($invite), ['accept' => true])->assertOk();
+        try {
+            app(ManualMemberService::class)->update($this->founder, $stale, ['name' => 'Stale Manager Edit']);
+            $this->fail('A stale manual snapshot must not edit the linked identity.');
+        } catch (ValidationException) {
+            $this->assertSame($account->name, $manual->fresh()->identity?->name);
+        }
+        $count = MemberInvitation::query()->count();
+        try {
+            app(GuardianService::class)->invite($this->founder, $stale, 'guardian', $this->founder->email);
+            $this->fail('A stale manager snapshot must not issue a guardian invitation for a linked account.');
+        } catch (AuthorizationException) {
+            $this->assertSame($count, MemberInvitation::query()->count());
+        }
+        $this->assertSame($account->name, $account->fresh()->name);
+    }
+
+    public function test_late_manager_invitation_cannot_grant_authority_after_identity_is_account_linked(): void
+    {
+        $account = User::factory()->create(['birth_date' => null, 'gender' => null]);
+        $manual = $this->manual();
+        $recipient = User::factory()->create();
+        $pending = $this->invite($manual, $recipient);
+        $accountInvite = $this->invite($manual, $account, 'account');
+        Passport::actingAs($account);
+        $this->postJson($this->claimUrl($accountInvite), ['accept' => true])->assertOk();
+        $this->assertNotNull($pending->fresh()->revoked_at);
+        // Reproduce a formerly queued manager issuance that persisted after the
+        // account claim revoked earlier invitations. Claim must reject it itself.
+        DB::table('member_invitations')->where('id', $pending->id)->update(['revoked_at' => null]);
+        Passport::actingAs($recipient);
+        $this->postJson($this->claimUrl($pending), ['accept' => true])->assertForbidden();
+        $this->assertDatabaseCount('guardian_grants', 0);
+        $this->assertNull($pending->fresh()->claimed_at);
+    }
+
+    public function test_stale_ordinary_role_snapshot_does_not_allow_officer_to_edit_or_bind_a_promoted_admin(): void
+    {
+        $manual = $this->manual();
+        $stale = CommunityMember::query()->with('identity', 'community')->findOrFail($manual->id);
+        $officer = User::factory()->create();
+        CommunityMember::factory()->for($this->community)->for($officer)->create(['role' => CommunityMemberRole::Officer]);
+        $manual->update(['role' => CommunityMemberRole::Admin]);
+        try {
+            app(ManualMemberService::class)->update($officer, $stale, ['name' => 'Stale Role Edit']);
+            $this->fail('A stale target role must not bypass privileged-identity protection.');
+        } catch (AuthorizationException) {
+            $this->assertNotSame('Stale Role Edit', $manual->fresh()->identity?->name);
+        }
+        try {
+            app(GuardianService::class)->invite($officer, $stale, 'account', $officer->email);
+            $this->fail('An officer cannot bind a target promoted to admin.');
+        } catch (AuthorizationException) {
+            $this->assertDatabaseCount('member_invitations', 0);
+        }
+    }
+
+    public function test_stale_manager_grant_snapshot_cannot_revoke_a_new_owner_authorized_guardian(): void
+    {
+        $account = User::factory()->create(['birth_date' => null, 'gender' => null]);
+        $manual = $this->manual();
+        $guardian = User::factory()->create();
+        $initial = $this->invite($manual, $guardian);
+        Passport::actingAs($guardian);
+        $this->postJson($this->claimUrl($initial), ['accept' => true])->assertOk();
+        $staleGrant = GuardianGrant::query()->with('identity', 'member.community')->firstOrFail();
+        Passport::actingAs($this->founder);
+        $accountInvite = $this->invite($manual, $account, 'account');
+        Passport::actingAs($account);
+        $this->postJson($this->claimUrl($accountInvite), ['accept' => true])->assertOk();
+        $ownerInvitation = $this->invite($manual->fresh(), $guardian);
+        Passport::actingAs($guardian);
+        $this->postJson($this->claimUrl($ownerInvitation), ['accept' => true])->assertOk();
+        $this->assertNull($staleGrant->fresh()->revoked_at);
+        try {
+            app(GuardianService::class)->revoke($this->founder, $staleGrant);
+            $this->fail('Stale manual ownership must not revoke an account owner delegation.');
+        } catch (AuthorizationException) {
+            $this->assertNull($staleGrant->fresh()->revoked_at);
+        }
     }
 
     private function manual(): CommunityMember
