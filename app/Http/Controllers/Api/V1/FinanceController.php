@@ -28,7 +28,9 @@ class FinanceController extends Controller
 
     public function options(): JsonResponse
     {
-        return ApiResponse::success(['ready' => Schema::hasColumns('ledger_accounts', ['balance', 'member_identity_id']) && Schema::hasColumns('incoming_receipts', ['collector_snapshot', 'target_member_id']) && Schema::hasColumns('billing_subjects', ['due_day']) && Schema::hasColumns('billing_notices', ['read_at']), 'billing_version' => 1, 'ledger_version' => 1, 'currency' => 'IDR', 'integer_amounts' => true, 'max_transaction' => (int) config('finance.max_transaction'), 'idempotency' => 'actor_operation_payload', 'payment_gateway' => false]);
+        $engine = DB::getDriverName();
+
+        return ApiResponse::success(['database_engine' => $engine, 'ready' => $engine === 'pgsql' && Schema::hasColumns('ledger_accounts', ['balance', 'member_identity_id']) && Schema::hasColumns('incoming_receipts', ['collector_snapshot', 'target_member_id']) && Schema::hasColumns('billing_subjects', ['due_day']) && Schema::hasColumns('billing_notices', ['read_at']), 'billing_version' => 1, 'ledger_version' => 1, 'currency' => 'IDR', 'integer_amounts' => true, 'max_transaction' => (int) config('finance.max_transaction'), 'idempotency' => 'actor_operation_payload', 'payment_gateway' => false]);
     }
 
     public function wallet(Request $request): JsonResponse

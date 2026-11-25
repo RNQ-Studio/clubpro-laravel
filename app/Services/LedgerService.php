@@ -346,9 +346,8 @@ class LedgerService
 
     public function lockOperation(string $key): void
     {
-        if (DB::getDriverName() === 'pgsql') {
-            DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$key]);
-        }
+        abort_unless(DB::getDriverName() === 'pgsql', 503, 'Layanan keuangan memerlukan PostgreSQL. Transaksi belum diproses.');
+        DB::select('SELECT pg_advisory_xact_lock(hashtextextended(?, 0))', [$key]);
     }
 
     /** @param array<mixed> $payload */
