@@ -91,6 +91,19 @@ class CommunityAccessTest extends TestCase
         $this->putJson("/api/v1/communities/{$community->id}", ['name' => 'Palsu'])->assertUnauthorized();
     }
 
+    public function test_merged_member_alias_cannot_be_reactivated_or_assigned_a_role(): void
+    {
+        $owner = User::factory()->create();
+        $community = Community::factory()->approved()->for($owner, 'owner')->create();
+        $canonical = CommunityMember::factory()->for($community)->create();
+        $alias = CommunityMember::factory()->for($community)->create();
+        $alias->forceFill(['user_id' => null, 'status' => 'archived', 'merged_into_member_id' => $canonical->id])->save();
+        Passport::actingAs($owner);
+        $this->postJson("/api/v1/communities/{$community->id}/members/{$alias->id}/approve")->assertUnprocessable()->assertJsonValidationErrors('member');
+        $this->putJson("/api/v1/communities/{$community->id}/members/{$alias->id}/role", ['role' => 'coach'])->assertUnprocessable()->assertJsonValidationErrors('member');
+        $this->assertDatabaseHas('community_members', ['id' => $alias->id, 'status' => 'archived', 'merged_into_member_id' => $canonical->id]);
+    }
+
     public function test_leave_and_rejoin_preserves_stable_membership_identity_and_join_date(): void
     {
         $community = Community::factory()->approved()->create();

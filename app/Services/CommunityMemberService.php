@@ -179,6 +179,9 @@ class CommunityMemberService
         if (! $actor->can('manageMembers', $member->community)) {
             abort(403);
         }
+        if ($member->merged_into_member_id !== null) {
+            $this->reject('member', 'Keanggotaan telah digabung ke identitas utama. Gunakan anggota utama; nomor dan riwayat lama tetap tersimpan.');
+        }
         if ($member->role === CommunityMemberRole::Creator) {
             $this->reject('role', 'Pendiri tidak dapat diubah.');
         }
