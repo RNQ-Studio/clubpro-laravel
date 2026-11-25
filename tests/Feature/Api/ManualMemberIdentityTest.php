@@ -302,6 +302,45 @@ class ManualMemberIdentityTest extends TestCase
         $this->assertNull($manual->refresh()->user_id);
     }
 
+    /** @return array<string,array{bool}> */
+    public static function canonicalAccountCases(): array
+    {
+        return ['new identity' => [false], 'existing canonical identity' => [true]];
+    }
+
+    #[DataProvider('canonicalAccountCases')]
+    public function test_account_claim_revokes_manual_delegations_and_pending_invites_without_inheriting_account_authority(bool $hasCanonical): void
+    {
+        $account = User::factory()->create(['birth_date' => null, 'gender' => null]);
+        if ($hasCanonical) {
+            MemberIdentity::forUser($account);
+        }
+        $manual = $this->manual();
+        $guardian = User::factory()->create();
+        [$guardianInvite, $guardianToken] = $this->invite($manual, $guardian);
+        Passport::actingAs($guardian);
+        $this->postJson('/api/v1/guardian-invitations/'.$guardianInvite->id.'/claim', ['token' => $guardianToken])->assertOk();
+        $grant = GuardianGrant::query()->firstOrFail();
+        $this->getJson('/api/v1/dependents/'.$manual->member_identity_id)->assertOk()->assertJsonPath('data.grant_id', $grant->id);
+        Passport::actingAs($this->founder);
+        [$pending, $pendingToken] = $this->invite($manual, User::factory()->create());
+        [$accountInvite, $accountToken] = $this->invite($manual, $account, 'account');
+        Passport::actingAs($account);
+        $claim = $this->postJson('/api/v1/guardian-invitations/'.$accountInvite->id.'/claim', ['token' => $accountToken])->assertOk()->json('data');
+        $this->assertNotNull($grant->refresh()->revoked_at);
+        $this->assertNotNull($pending->refresh()->revoked_at);
+        Passport::actingAs($guardian);
+        $this->getJson('/api/v1/dependents/'.$claim['id'])->assertForbidden();
+        $this->putJson('/api/v1/dependents/'.$claim['id'], ['name' => 'Account Hijack'])->assertForbidden();
+        $this->assertNotSame('Account Hijack', $account->refresh()->name);
+        Passport::actingAs($account);
+        $manual->refresh();
+        [$newInvite, $newToken] = $this->invite($manual, $guardian);
+        Passport::actingAs($guardian);
+        $this->postJson('/api/v1/guardian-invitations/'.$newInvite->id.'/claim', ['token' => $newToken])->assertOk();
+        $this->getJson('/api/v1/dependents/'.$claim['id'])->assertOk();
+    }
+
     /** @param array<string,mixed> $overrides */
     private function manual(array $overrides = []): CommunityMember
     {

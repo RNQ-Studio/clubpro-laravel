@@ -52,12 +52,14 @@ class GuardianController extends Controller
     {
         $this->guardians->authorizeDependent($this->actor($request), $identity);
 
-        return ApiResponse::success($this->guardians->details($identity));
+        return ApiResponse::success(['grant_id' => $this->guardians->grantId($this->actor($request), $identity), ...$this->guardians->details($identity)]);
     }
 
     public function update(UpdateDependentRequest $request, MemberIdentity $identity): JsonResponse
     {
-        return ApiResponse::success($this->guardians->details($this->guardians->updateDependent($this->actor($request), $identity, $request->validated())), 'Data anggota tersimpan');
+        $identity = $this->guardians->updateDependent($this->actor($request), $identity, $request->validated());
+
+        return ApiResponse::success(['grant_id' => $this->guardians->grantId($this->actor($request), $identity), ...$this->guardians->details($identity)], 'Data anggota tersimpan');
     }
 
     public function revoke(Request $request, GuardianGrant $grant): JsonResponse

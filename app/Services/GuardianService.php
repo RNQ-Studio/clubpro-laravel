@@ -75,7 +75,7 @@ class GuardianService
             }
             $identity = MemberIdentity::query()->lockForUpdate()->findOrFail($invitation->member_identity_id);
             if ($invitation->kind === 'account') {
-                $identity = $this->linkAccount($actor, $identity);
+                $identity = $this->linkAccount($actor, $identity, $invitation->id);
             } else {
                 if ($identity->user_id === $actor->getKey()) {
                     $this->members->reject('token', 'Pemilik akun tidak perlu menjadi wali bagi dirinya sendiri.');
@@ -147,6 +147,24 @@ class GuardianService
         ];
     }
 
+    private function revokeManualDelegations(User $actor, MemberIdentity $source, int $invitationId): void
+    {
+        // A community manager's manual-record grant never becomes authority over
+        // the linked login account. Its owner can issue new invitations explicitly.
+        $source->guardianGrants()->whereNull('revoked_at')->update(['revoked_at' => now()]);
+        MemberInvitation::query()->where('member_identity_id', $source->id)->whereKeyNot($invitationId)
+            ->whereNull('claimed_at')->whereNull('revoked_at')->update(['revoked_at' => now()]);
+        foreach ($source->memberships as $member) {
+            $this->members->audit($actor, $member, 'manual_delegations_revoked_on_account_link');
+        }
+    }
+
+    public function grantId(User $actor, MemberIdentity $identity): ?int
+    {
+        return GuardianGrant::query()->where('member_identity_id', $identity->id)
+            ->where('guardian_user_id', $actor->getKey())->whereNull('revoked_at')->value('id');
+    }
+
     private function demographicValue(User|MemberIdentity $subject, string $field): ?string
     {
         return $field === 'birth_date' ? $subject->birth_date?->toDateString() : $subject->gender?->value;
@@ -170,16 +188,17 @@ class GuardianService
         $identity->save();
     }
 
-    private function linkAccount(User $actor, MemberIdentity $source): MemberIdentity
+    private function linkAccount(User $actor, MemberIdentity $source, int $invitationId): MemberIdentity
     {
         $actor = User::query()->whereKey($actor->getKey())->lockForUpdate()->firstOrFail();
         if ($source->user_id !== null || $source->merged_into_id !== null) {
             $this->members->reject('token', 'Identitas sudah terhubung ke akun.');
         }
         $target = MemberIdentity::query()->where('user_id', $actor->getKey())->lockForUpdate()->first();
+        $this->revokeManualDelegations($actor, $source, $invitationId);
         if ($target === null) {
             $this->reconcileAccountDemographics($actor, $source);
-            $source->update(['user_id' => $actor->getKey(), 'name' => $actor->name]);
+            $source->update(['user_id' => $actor->getKey(), 'name' => $actor->name, 'is_public' => false]);
             $source->memberships()->update(['user_id' => $actor->getKey(), 'account_email' => $actor->email]);
 
             return $source;
@@ -204,15 +223,6 @@ class GuardianService
             } else {
                 $sourceMember->update(['member_identity_id' => $target->id, 'user_id' => $actor->getKey(), 'account_email' => $actor->email]);
             }
-        }
-        foreach ($source->guardianGrants as $grant) {
-            $existingGrant = GuardianGrant::query()->firstOrCreate([
-                'member_identity_id' => $target->id, 'guardian_user_id' => $grant->guardian_user_id,
-            ], ['community_member_id' => $grant->community_member_id, 'verified_at' => $grant->verified_at, 'revoked_at' => $grant->revoked_at]);
-            if ($existingGrant->revoked_at !== null && $grant->revoked_at === null) {
-                $existingGrant->update(['verified_at' => $grant->verified_at, 'revoked_at' => null]);
-            }
-            $grant->update(['revoked_at' => now()]);
         }
         MemberInvitation::query()->where('member_identity_id', $source->id)->update(['member_identity_id' => $target->id]);
         $source->update(['merged_into_id' => $target->id, 'is_public' => false]);
