@@ -9,6 +9,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Number;
 use Throwable;
 
@@ -79,6 +80,10 @@ class AssetInfolist
 
             if (! $disk->exists($record->path)) {
                 return null;
+            }
+
+            if ($record->isSensitive()) {
+                return URL::temporarySignedRoute('assets.file', now()->addMinutes(5), ['asset' => $record->id]);
             }
 
             return $record->isGCS()
