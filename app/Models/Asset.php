@@ -187,8 +187,7 @@ class Asset extends Model
     public function isSensitive(): bool
     {
         return $this->storage_type === StorageType::Private
-            || in_array($this->category, ['dues-proof', 'bukti-transfer', 'bukti_transfer', 'topup-proof', 'payout-proof'], true)
-            || DuesPayment::query()->where('proof_asset_id', $this->id)->exists();
+            || in_array($this->category, ['dues-proof', 'bukti-transfer', 'bukti_transfer', 'topup-proof', 'payout-proof'], true);
     }
 
     /**

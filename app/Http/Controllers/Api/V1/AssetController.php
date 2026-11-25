@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\V1\UploadAssetRequest;
 use App\Http\Resources\Api\V1\AssetResource;
 use App\Models\Asset;
+use App\Models\DuesPayment;
 use App\Services\AssetUploadService;
 use App\Support\ApiResponse;
 use App\Support\Enums\AssetStatus;
@@ -44,7 +45,8 @@ class AssetController extends Controller
      */
     public function file(Request $request, Asset $asset): StreamedResponse
     {
-        if ($asset->isSensitive()) {
+        // Legacy proofs with arbitrary upload categories stay protected during migration too.
+        if ($asset->isSensitive() || DuesPayment::query()->where('proof_asset_id', $asset->id)->exists()) {
             abort_unless($request->hasValidSignature(), 403);
             abort_unless($asset->status === AssetStatus::Active, 404);
             abort_unless(in_array($asset->mime_type, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'], true), 404);
