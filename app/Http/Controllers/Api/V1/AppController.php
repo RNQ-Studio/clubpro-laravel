@@ -5,12 +5,23 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\AppConfig;
 use App\Models\AppVersion;
+use App\Services\RuntimeVersionService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class AppController extends Controller
 {
+    /**
+     * @unauthenticated
+     */
+    public function runtime(RuntimeVersionService $version): JsonResponse
+    {
+        return ApiResponse::success($version->current())
+            ->header('Cache-Control', 'no-store, max-age=0')
+            ->header('Pragma', 'no-cache');
+    }
+
     /**
      * @unauthenticated
      */

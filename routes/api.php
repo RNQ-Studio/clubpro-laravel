@@ -61,6 +61,7 @@ Route::prefix('v1')->group(function (): void {
 
     // Unauthenticated app info endpoints (no maintenance check — needed to show maintenance message)
     Route::prefix('app')->group(function (): void {
+        Route::get('runtime', [AppController::class, 'runtime'])->middleware('throttle:60,1');
         Route::get('version', [AppController::class, 'version'])->middleware('throttle:60,1');
         Route::get('config', [AppController::class, 'config'])->middleware('throttle:60,1');
         Route::get('releases/latest', [AppReleaseController::class, 'latest'])->middleware('throttle:60,1');
