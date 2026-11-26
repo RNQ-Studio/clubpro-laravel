@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\AchievementService;
+use Database\Seeders\AchievementRuleSeeder;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -21,7 +22,7 @@ return new class extends Migration
                 $table->string('reason', 1000);
                 $table->timestampTz('created_at', 6);
             });
-            DB::table('achievement_rules')->insert(['version' => 1, 'points' => json_encode(['training_attendance' => 1, 'training_purchase' => 1, 'participation' => 1, 'champion' => 1]), 'age_boundaries' => json_encode([12, 16, 19, 36, 51]), 'effective_at' => '1970-01-01 00:00:00+00', 'reason' => 'Default operasional AI D05; bukan keputusan client.', 'created_at' => now()]);
+            (new AchievementRuleSeeder)->run();
         }
         if (! Schema::hasTable('achievement_records')) {
             Schema::create('achievement_records', function (Blueprint $table): void {

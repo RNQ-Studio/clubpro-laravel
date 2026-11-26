@@ -11,6 +11,7 @@ use App\Models\MemberIdentity;
 use App\Models\TrainingFinalEvent;
 use App\Models\User;
 use App\Services\AchievementService;
+use Database\Seeders\AchievementRuleSeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\ThrottleRequests;
@@ -185,6 +186,18 @@ class AchievementApiTest extends TestCase
         Passport::actingAs($this->sender);
         $this->postJson('/api/v1/advertisements', $body)->assertUnprocessable();
         $this->assertSame(6, MemberAdvertisement::query()->count());
+    }
+
+    public function test_explicit_default_seed_preserves_configured_versions_and_history(): void
+    {
+        $super = User::factory()->create();
+        $super->assignRole('super-admin');
+        app(AchievementService::class)->configure($super, ['expected_version' => 1, 'points' => ['training_attendance' => 2, 'training_purchase' => 3, 'participation' => 4, 'champion' => 5], 'age_boundaries' => [12, 16, 19, 36, 51], 'reason' => 'Fixture aturan yang dipertahankan']);
+        $before = AchievementRule::query()->orderBy('version')->get()->toArray();
+        $this->seed(AchievementRuleSeeder::class);
+        $this->seed(AchievementRuleSeeder::class);
+        $this->assertSame($before, AchievementRule::query()->orderBy('version')->get()->toArray());
+        $this->assertSame(2, app(AchievementService::class)->rule()->version);
     }
 
     public function test_configurable_tie_order_and_sql_immutable_history(): void
