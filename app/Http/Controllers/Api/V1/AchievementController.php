@@ -47,7 +47,7 @@ class AchievementController extends Controller
 
     public function rankings(Request $request): JsonResponse
     {
-        $filters = $request->validate(['scope' => ['nullable', Rule::in(['members', 'communities'])], 'community_id' => ['nullable', 'integer', 'min:1'], 'period' => ['nullable', Rule::in(['month', 'all'])], 'month' => ['nullable', 'date_format:Y-m'], 'as_of' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:today'], 'gender' => ['nullable', Rule::in(['male', 'female', 'unknown'])], 'age_group' => ['nullable', Rule::in(['u12', '12_15', '16_18', '19_35', '36_50', '51_plus', 'unknown'])], 'page' => ['integer', 'min:1'], 'per_page' => ['integer', 'min:1', 'max:100']]);
+        $filters = $request->validate(['scope' => ['nullable', Rule::in(['members', 'communities'])], 'community_id' => ['nullable', 'integer', 'min:1'], 'period' => ['nullable', Rule::in(['month', 'all'])], 'month' => ['nullable', 'date_format:Y-m'], 'as_of' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:'.now('Asia/Jakarta')->toDateString()], 'gender' => ['nullable', Rule::in(['male', 'female', 'unknown'])], 'age_group' => ['nullable', Rule::in(['u12', '12_15', '16_18', '19_35', '36_50', '51_plus', 'unknown'])], 'page' => ['integer', 'min:1'], 'per_page' => ['integer', 'min:1', 'max:100']]);
 
         return ApiResponse::success($this->points->rankings($filters));
     }
