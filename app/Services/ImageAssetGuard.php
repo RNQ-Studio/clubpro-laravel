@@ -9,6 +9,7 @@ use App\Models\DuesPayment;
 use App\Models\IncomingReceipt;
 use App\Models\MarketplaceOrder;
 use App\Models\MarketplaceProduct;
+use App\Models\MemberAdvertisement;
 use App\Models\PayoutFragment;
 use App\Models\User;
 use App\Support\Enums\AssetStatus;
@@ -52,7 +53,8 @@ class ImageAssetGuard
             throw ValidationException::withMessages([$field => ['Bukti privat tidak dapat dipakai sebagai gambar publik. Unggah gambar lain.']]);
         }
 
-        $taken = (Schema::hasTable('marketplace_products') && MarketplaceProduct::query()->whereIn('photo_asset_id', $ids)->exists())
+        $taken = (Schema::hasTable('member_advertisements') && MemberAdvertisement::query()->whereIn('photo_asset_id', $ids)->exists())
+            || (Schema::hasTable('marketplace_products') && MarketplaceProduct::query()->whereIn('photo_asset_id', $ids)->exists())
             || (Schema::hasTable('marketplace_orders') && MarketplaceOrder::query()->whereIn('snapshot->product->photo_asset_id', $ids)->exists())
             || Community::query()->whereIn('logo_asset_id', $ids)->exists()
             || DB::table('community_photos')->whereIn('asset_id', $ids)->exists()

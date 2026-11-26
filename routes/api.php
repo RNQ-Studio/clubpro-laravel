@@ -1,10 +1,12 @@
 <?php
 
 use App\Http\Controllers\Api\UserExcelController;
+use App\Http\Controllers\Api\V1\AchievementController;
 use App\Http\Controllers\Api\V1\Admin\BannerController as AdminBannerController;
 use App\Http\Controllers\Api\V1\Admin\CommunityController as AdminCommunityController;
 use App\Http\Controllers\Api\V1\Admin\SummaryController as AdminSummaryController;
 use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
+use App\Http\Controllers\Api\V1\AdvertisementController;
 use App\Http\Controllers\Api\V1\AppController;
 use App\Http\Controllers\Api\V1\AppReleaseController;
 use App\Http\Controllers\Api\V1\ArticleController;
@@ -48,6 +50,9 @@ Route::prefix('v1')->group(function (): void {
         Route::get('communities', [PublicDirectoryController::class, 'communities']);
         Route::get('communities/{community}', [PublicDirectoryController::class, 'community'])->whereNumber('community');
         Route::get('members', [PublicDirectoryController::class, 'members']);
+        Route::get('achievement-options', [AchievementController::class, 'options']);
+        Route::get('rankings', [AchievementController::class, 'rankings']);
+        Route::get('advertisements', [AdvertisementController::class, 'catalogue']);
         Route::get('products', [MarketplaceController::class, 'catalogue']);
         Route::get('products/{product}', [MarketplaceController::class, 'product'])->whereUuid('product');
     });
@@ -137,6 +142,7 @@ Route::prefix('v1')->group(function (): void {
         require __DIR__.'/training.php';
         require __DIR__.'/money-movements.php';
         require __DIR__.'/marketplace.php';
+        require __DIR__.'/achievements.php';
         Route::get('billing-notices', [BillingNoticeController::class, 'index']);
         Route::post('billing-notices/{notice}/read', [BillingNoticeController::class, 'read'])->whereNumber('notice');
 

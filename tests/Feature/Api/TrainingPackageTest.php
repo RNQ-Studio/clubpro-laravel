@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\AchievementEntry;
 use App\Models\Asset;
 use App\Models\Community;
 use App\Models\CommunityMember;
@@ -13,6 +14,7 @@ use App\Models\TrainingLocation;
 use App\Models\TrainingPurchase;
 use App\Models\TrainingSession;
 use App\Models\User;
+use App\Services\AchievementService;
 use App\Services\IncomingReceiptService;
 use App\Services\LedgerService;
 use App\Services\TrainingService;
@@ -20,6 +22,7 @@ use App\Support\Enums\StorageType;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Routing\Middleware\ThrottleRequests;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
@@ -344,6 +347,56 @@ class TrainingPackageTest extends TestCase
         $this->assertSame(14286, $attendance->snapshot['residual']);
         $this->assertSame(85717, $purchase->refresh()->remaining_amount);
         $this->assertTrue($this->ledger->reconcile()['balanced']);
+    }
+
+    public function test_achievement_points_follow_final_sources_replay_backfill_and_correction_once(): void
+    {
+        $points = app(AchievementService::class);
+        $entry = AchievementEntry::query();
+        $body = $this->buyBody();
+        $purchase = $this->training->purchase($this->athlete, $this->community, $body);
+        $this->assertSame(1, (int) (clone $entry)->sum('points'));
+        $this->training->purchase($this->athlete, $this->community, $body);
+        $this->assertSame(1, (clone $entry)->count());
+        $session = $this->newSession();
+        $checkin = ['idempotency_key' => (string) Str::uuid()];
+        $this->training->checkIn($this->athlete, $this->community, $session, $checkin);
+        $this->assertSame(1, (int) (clone $entry)->sum('points'));
+        $confirm = ['member_id' => $this->member->id, 'idempotency_key' => (string) Str::uuid()];
+        $attendance = $this->training->confirm($this->coach, $this->community, $session, $confirm);
+        $this->assertSame(2, (int) (clone $entry)->sum('points'));
+        $this->training->confirm($this->coach, $this->community, $session, $confirm);
+        $points->syncTraining();
+        $points->syncTraining();
+        $this->assertSame(2, (clone $entry)->count());
+        $body = ['reason' => 'Koreksi fixture poin sah', 'idempotency_key' => (string) Str::uuid()];
+        $this->training->correct($this->founder, $this->community, $attendance, $body);
+        $points->syncTraining();
+        $this->assertSame(3, (clone $entry)->count());
+        $this->assertSame(1, (int) (clone $entry)->sum('points'));
+        $original = (clone $entry)->where('type', 'training_attendance')->firstOrFail();
+        $negative = (clone $entry)->where('type', 'training_attendance_correction')->firstOrFail();
+        $this->assertSame(-$original->points, $negative->points);
+        $this->assertTrue($negative->occurred_at->equalTo($original->occurred_at));
+        $this->assertSame($original->community_id, $negative->community_id);
+        $this->assertSame($original->rule_version, $negative->rule_version);
+        $this->assertSame(1399997, $this->ledger->wallet($this->athlete)['available']);
+    }
+
+    public function test_achievement_rule_chronology_preserves_fractional_second_final_event_time(): void
+    {
+        $super = User::factory()->create();
+        $super->assignRole('super-admin');
+        $this->travelTo(Carbon::parse('2026-11-26 08:15:00.500000', 'Asia/Jakarta'));
+        app(AchievementService::class)->configure($super, ['expected_version' => 1, 'points' => ['training_attendance' => 3, 'training_purchase' => 5, 'participation' => 7, 'champion' => 9], 'age_boundaries' => [12, 16, 19, 36, 51], 'reason' => 'Fixture urutan subdetik']);
+        $this->travelTo(Carbon::parse('2026-11-26 08:15:00.600000', 'Asia/Jakarta'));
+        $purchase = $this->buy();
+        $this->training->confirm($this->coach, $this->community, $this->newSession(), ['member_id' => $this->member->id, 'idempotency_key' => (string) Str::uuid()]);
+        $this->assertSame(8, (int) AchievementEntry::query()->sum('points'));
+        $this->assertSame([2], AchievementEntry::query()->distinct()->pluck('rule_version')->all());
+        app(AchievementService::class)->syncTraining();
+        $this->assertSame(2, AchievementEntry::query()->count());
+        $this->assertSame(8, (int) AchievementEntry::query()->sum('points'));
     }
 
     /** @return array<string,mixed> */

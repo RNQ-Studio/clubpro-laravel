@@ -223,6 +223,7 @@ class Asset extends Model
     public function isProtected(): bool
     {
         return $this->is_protected
+            || (Schema::hasTable('member_advertisements') && MemberAdvertisement::query()->where('photo_asset_id', $this->id)->exists())
             || (Schema::hasTable('marketplace_products') && MarketplaceProduct::query()->where('photo_asset_id', $this->id)->exists())
             || (Schema::hasTable('marketplace_orders') && MarketplaceOrder::query()->where('snapshot->product->photo_asset_id', $this->id)->exists());
     }

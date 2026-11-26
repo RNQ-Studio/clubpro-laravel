@@ -330,7 +330,8 @@ class TrainingService
     /** @param array<string,mixed> $payload */
     private function event(Community $community, int $identity, string $type, string $source, array $payload): void
     {
-        TrainingFinalEvent::query()->firstOrCreate(['type' => $type, 'source_id' => $source], ['community_id' => $community->id, 'member_identity_id' => $identity, 'payload' => $payload, 'created_at' => now()]);
+        $event = TrainingFinalEvent::query()->firstOrCreate(['type' => $type, 'source_id' => $source], ['community_id' => $community->id, 'member_identity_id' => $identity, 'payload' => $payload, 'created_at' => now()]);
+        app(AchievementService::class)->consumeTraining($event);
     }
 
     /** @param array<string,mixed> $properties */
