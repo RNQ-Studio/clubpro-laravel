@@ -195,7 +195,12 @@ class FinanceLedgerTest extends TestCase
         $this->receipts->verify($this->founder, $receipt, 100000, 'HOLD-FUND', (string) Str::uuid());
         $identity = MemberIdentity::forUser($this->member);
         $reservation = $this->ledger->reserve($this->member, $identity, 70000, 'reserved', 'package-fixture', (string) Str::uuid(), $this->community);
-        $this->assertSame(['identity_id' => $identity->id, 'currency' => 'IDR', 'available' => 30000, 'reserved' => 70000, 'held' => 0, 'total' => 100000], $this->ledger->wallet($this->member));
+        $expected = ['identity_id' => $identity->id, 'currency' => 'IDR', 'available' => 30000, 'reserved' => 70000, 'held' => 0, 'total' => 100000];
+        $wallet = $this->ledger->wallet($this->member);
+        // SQL row order is unspecified; compare the complete map with exact types and rupiah values.
+        ksort($expected);
+        ksort($wallet);
+        $this->assertSame($expected, $wallet);
         $key = (string) Str::uuid();
         $recipient = $this->ledger->communityAccount($this->community);
         $this->ledger->finalize($this->member, $reservation, $recipient, 20000, $key, 'Fixture sesi');
