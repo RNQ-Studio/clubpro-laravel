@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Community;
 use App\Models\CommunityMember;
+use App\Models\MemberIdentity;
 use App\Models\User;
 use App\Services\BillingService;
 use App\Support\ApiResponse;
@@ -59,6 +60,7 @@ class MemberProfileController extends Controller
 
         return ApiResponse::success([
             'id' => $user->id,
+            'identity_id' => MemberIdentity::forUser($user)->id,
             'name' => $user->name,
             'avatar_url' => $user->avatarUrl(),
             'registered_at' => $user->created_at?->toIso8601String(),

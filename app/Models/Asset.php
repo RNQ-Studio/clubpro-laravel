@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -197,7 +198,7 @@ class Asset extends Model
      */
     public function markAsSoftDeleted(int $hardDeleteAfterDays = 30): bool
     {
-        if ($this->is_protected) {
+        if ($this->isProtected()) {
             return false;
         }
 
@@ -221,6 +222,8 @@ class Asset extends Model
 
     public function isProtected(): bool
     {
-        return $this->is_protected;
+        return $this->is_protected
+            || (Schema::hasTable('marketplace_products') && MarketplaceProduct::query()->where('photo_asset_id', $this->id)->exists())
+            || (Schema::hasTable('marketplace_orders') && MarketplaceOrder::query()->where('snapshot->product->photo_asset_id', $this->id)->exists());
     }
 }

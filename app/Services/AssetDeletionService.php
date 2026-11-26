@@ -16,7 +16,7 @@ class AssetDeletionService
      */
     public function hardDelete(Asset $asset): void
     {
-        if ($asset->is_protected) {
+        if ($asset->isProtected()) {
             throw new RuntimeException('Asset dilindungi (is_protected) tidak boleh dihapus.');
         }
 

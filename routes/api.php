@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\FinanceController;
 use App\Http\Controllers\Api\V1\GuardianController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\ManualMemberController;
+use App\Http\Controllers\Api\V1\MarketplaceController;
 use App\Http\Controllers\Api\V1\MemberCardController;
 use App\Http\Controllers\Api\V1\MemberProfileController;
 use App\Http\Controllers\Api\V1\NotificationController;
@@ -47,6 +48,8 @@ Route::prefix('v1')->group(function (): void {
         Route::get('communities', [PublicDirectoryController::class, 'communities']);
         Route::get('communities/{community}', [PublicDirectoryController::class, 'community'])->whereNumber('community');
         Route::get('members', [PublicDirectoryController::class, 'members']);
+        Route::get('products', [MarketplaceController::class, 'catalogue']);
+        Route::get('products/{product}', [MarketplaceController::class, 'product'])->whereUuid('product');
     });
 
     Route::get('health', HealthController::class);
@@ -133,6 +136,7 @@ Route::prefix('v1')->group(function (): void {
         require __DIR__.'/finance.php';
         require __DIR__.'/training.php';
         require __DIR__.'/money-movements.php';
+        require __DIR__.'/marketplace.php';
         Route::get('billing-notices', [BillingNoticeController::class, 'index']);
         Route::post('billing-notices/{notice}/read', [BillingNoticeController::class, 'read'])->whereNumber('notice');
 
