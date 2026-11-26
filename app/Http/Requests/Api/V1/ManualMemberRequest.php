@@ -32,7 +32,7 @@ class ManualMemberRequest extends FormRequest
 
         return [
             'name' => [$creating ? 'required' : 'sometimes', 'required', 'string', 'max:255'],
-            'birth_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'before_or_equal:today', 'after_or_equal:'.now()->subYears((int) config('community.max_age_years', 120))->toDateString()],
+            'birth_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.now('Asia/Jakarta')->toDateString(), 'after_or_equal:'.now('Asia/Jakarta')->subYearsNoOverflow((int) config('community.max_age_years', 120))->toDateString()],
             'gender' => ['sometimes', 'nullable', Rule::enum(Gender::class)],
             'external_reference' => ['sometimes', 'nullable', 'string', 'max:100'],
             'account_email' => ['sometimes', 'nullable', 'email', 'max:255'],

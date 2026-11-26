@@ -52,7 +52,7 @@ class UpdateProfileRequest extends FormRequest
                 new UniqueAccountEmail($userId),
             ],
             'gender' => ['sometimes', 'nullable', Rule::enum(Gender::class)],
-            'birth_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'before_or_equal:today', 'after_or_equal:'.now()->subYears((int) config('community.max_age_years', 120))->toDateString()],
+            'birth_date' => ['sometimes', 'nullable', 'date_format:Y-m-d', 'before_or_equal:'.now('Asia/Jakarta')->toDateString(), 'after_or_equal:'.now('Asia/Jakarta')->subYearsNoOverflow((int) config('community.max_age_years', 120))->toDateString()],
             'phone' => [
                 'sometimes',
                 'nullable',
